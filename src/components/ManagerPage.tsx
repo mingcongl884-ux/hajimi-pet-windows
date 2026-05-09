@@ -33,6 +33,8 @@ type Props = {
   onChooseWorkspace(): Promise<void>;
   onTestModel(model: ModelProfile): Promise<string>;
   onCheckUpdates(): Promise<UpdateCheckResult>;
+  onDownloadUpdate(): Promise<UpdateCheckResult>;
+  onInstallUpdate(): Promise<UpdateCheckResult>;
   onCheckNotices(): Promise<{ notices: RemoteNotice[]; checkedAt: string; message?: string }>;
   onSave(settings: AppSettings): Promise<void>;
   chatError?: string;
@@ -103,6 +105,8 @@ export default function ManagerPage({
   onChooseWorkspace,
   onTestModel,
   onCheckUpdates,
+  onDownloadUpdate,
+  onInstallUpdate,
   onCheckNotices,
   onSave,
   chatError,
@@ -120,6 +124,8 @@ export default function ManagerPage({
   const [officeDraft, setOfficeDraft] = useState("");
   const [networkMessage, setNetworkMessage] = useState<string>();
   const [checkingNetwork, setCheckingNetwork] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateCheckResult["status"]>();
+  const [availableUpdateVersion, setAvailableUpdateVersion] = useState<string>();
   const [renamingConversationId, setRenamingConversationId] = useState<string>();
   const [renamingTitle, setRenamingTitle] = useState("");
   const [renamingPetId, setRenamingPetId] = useState<string>();
@@ -190,10 +196,42 @@ export default function ManagerPage({
     setNetworkMessage(undefined);
     try {
       const result = await onCheckUpdates();
+      setUpdateStatus(result.status);
+      setAvailableUpdateVersion(result.status === "available" ? result.version : undefined);
       setNetworkMessage(result.message ?? (result.status === "available" ? `发现新版本 ${result.version}` : "更新检查完成。"));
     } catch (error) {
+      setUpdateStatus("error");
       setNetworkMessage(error instanceof Error ? error.message : "检查更新失败。");
     } finally {
+      setCheckingNetwork(false);
+    }
+  }
+
+  async function downloadUpdate() {
+    setCheckingNetwork(true);
+    setNetworkMessage("正在下载更新，请稍候。");
+    try {
+      const result = await onDownloadUpdate();
+      setUpdateStatus(result.status);
+      setNetworkMessage(result.message ?? "更新已下载，点击重启安装即可完成更新。");
+    } catch (error) {
+      setUpdateStatus("error");
+      setNetworkMessage(error instanceof Error ? error.message : "下载更新失败。");
+    } finally {
+      setCheckingNetwork(false);
+    }
+  }
+
+  async function installUpdate() {
+    setCheckingNetwork(true);
+    setNetworkMessage("正在重启并安装更新。");
+    try {
+      const result = await onInstallUpdate();
+      setUpdateStatus(result.status);
+      setNetworkMessage(result.message ?? "正在重启并安装更新。");
+    } catch (error) {
+      setUpdateStatus("error");
+      setNetworkMessage(error instanceof Error ? error.message : "安装更新失败。");
       setCheckingNetwork(false);
     }
   }
@@ -871,6 +909,18 @@ export default function ManagerPage({
                   <RefreshCw size={16} />
                   检查更新
                 </button>
+                {updateStatus === "available" && (
+                  <button className="secondary-command" disabled={checkingNetwork} onClick={() => void downloadUpdate()}>
+                    <Download size={16} />
+                    下载更新{availableUpdateVersion ? ` ${availableUpdateVersion}` : ""}
+                  </button>
+                )}
+                {updateStatus === "downloaded" && (
+                  <button className="primary-command compact-command" disabled={checkingNetwork} onClick={() => void installUpdate()}>
+                    <Check size={16} />
+                    重启安装
+                  </button>
+                )}
                 <button className="secondary-command" disabled={checkingNetwork} onClick={() => void checkNotices()}>
                   <MessageCircle size={16} />
                   检查公告

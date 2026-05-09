@@ -349,6 +349,8 @@ export default function App() {
         onChooseWorkspace={chooseWorkspace}
         onTestModel={(model) => window.petApp.testModel(model)}
         onCheckUpdates={() => window.petApp.checkUpdates()}
+        onDownloadUpdate={() => window.petApp.downloadUpdate()}
+        onInstallUpdate={() => window.petApp.installUpdate()}
         onCheckNotices={() => window.petApp.checkNotices()}
         onSave={saveSettings}
         chatError={error}

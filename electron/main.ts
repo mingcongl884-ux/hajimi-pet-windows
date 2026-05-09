@@ -17,7 +17,13 @@ import { fileURLToPath } from "node:url";
 import { runAgentTask } from "./agentClient.js";
 import { runClaudeAgentTask, testClaudeAgentModel } from "./claudeAgentClient.js";
 import { sendChatMessage, type ChatMessage } from "./chatClient.js";
-import { checkForAppUpdates, checkRemoteNotices, markNoticeRead } from "./networkClient.js";
+import {
+  checkForAppUpdates,
+  checkRemoteNotices,
+  downloadAppUpdate,
+  installDownloadedUpdate,
+  markNoticeRead
+} from "./networkClient.js";
 import { importPetBundle } from "./petImporter.js";
 import { SettingsStore, type AppSettings, type ModelProfile } from "./settingsStore.js";
 import { getActiveModelSettings } from "../src/lib/modelProfiles.js";
@@ -249,6 +255,11 @@ function registerIpc() {
     });
     return result;
   });
+  ipcMain.handle("pet:download-update", async () => {
+    const settings = await settingsStore.loadSettings();
+    return downloadAppUpdate(settings.network);
+  });
+  ipcMain.handle("pet:install-update", () => installDownloadedUpdate());
   ipcMain.handle("pet:check-notices", async () => {
     const settings = await settingsStore.loadSettings();
     const result = await checkRemoteNotices(settings.network);

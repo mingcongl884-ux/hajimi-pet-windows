@@ -2,6 +2,10 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.28 - 2026-05-09
+
+- Added an in-app update flow in the system page: check, download, then restart to install without opening GitHub manually.
+
 ## 0.1.27 - 2026-05-09
 
 - Fixed GitHub Actions heartbeat schedule tests so release publishing works consistently across runner time zones.

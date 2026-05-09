@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("petApp", {
   heartbeatGreeting: (prompt) => ipcRenderer.invoke("pet:heartbeat-greeting", prompt),
   testModel: (model) => ipcRenderer.invoke("pet:test-model", model),
   checkUpdates: () => ipcRenderer.invoke("pet:check-updates"),
+  downloadUpdate: () => ipcRenderer.invoke("pet:download-update"),
+  installUpdate: () => ipcRenderer.invoke("pet:install-update"),
   checkNotices: () => ipcRenderer.invoke("pet:check-notices"),
   markNoticeRead: (noticeId) => ipcRenderer.invoke("pet:mark-notice-read", noticeId),
   chooseWorkspace: () => ipcRenderer.invoke("pet:choose-workspace"),

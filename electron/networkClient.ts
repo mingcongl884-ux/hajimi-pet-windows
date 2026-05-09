@@ -3,7 +3,7 @@ import electronUpdater from "electron-updater";
 import type { AppSettings, NetworkSettings, RemoteNotice } from "./settingsStore.js";
 
 export type UpdateCheckResult = {
-  status: "disabled" | "checking" | "available" | "not-available" | "downloaded" | "error";
+  status: "disabled" | "checking" | "available" | "not-available" | "downloading" | "downloaded" | "installing" | "error";
   currentVersion: string;
   version?: string;
   message?: string;
@@ -15,20 +15,9 @@ type NoticeFeed = {
 
 export async function checkForAppUpdates(network: NetworkSettings): Promise<UpdateCheckResult> {
   const currentVersion = app.getVersion();
-  if (!network.updateFeedUrl.trim()) {
-    return {
-      status: "disabled",
-      currentVersion,
-      message: "还没有配置更新源。"
-    };
-  }
-
-  if (!app.isPackaged) {
-    return {
-      status: "disabled",
-      currentVersion,
-      message: "开发模式不会执行安装包更新检查。打包安装后会自动启用。"
-    };
+  const unavailable = readUpdateUnavailable(network, currentVersion);
+  if (unavailable) {
+    return unavailable;
   }
 
   try {
@@ -45,6 +34,51 @@ export async function checkForAppUpdates(network: NetworkSettings): Promise<Upda
       status: "error",
       currentVersion,
       message: error instanceof Error ? error.message : "检查更新失败。"
+    };
+  }
+}
+
+export async function downloadAppUpdate(network: NetworkSettings): Promise<UpdateCheckResult> {
+  const currentVersion = app.getVersion();
+  const unavailable = readUpdateUnavailable(network, currentVersion);
+  if (unavailable) {
+    return unavailable;
+  }
+
+  try {
+    const { autoUpdater } = electronUpdater;
+    autoUpdater.autoDownload = false;
+    autoUpdater.setFeedURL({ provider: "generic", url: network.updateFeedUrl.trim().replace(/\/+$/, "") });
+    await autoUpdater.downloadUpdate();
+    return {
+      status: "downloaded",
+      currentVersion,
+      message: "更新已下载，点击重启安装即可完成更新。"
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      currentVersion,
+      message: error instanceof Error ? error.message : "下载更新失败。"
+    };
+  }
+}
+
+export function installDownloadedUpdate(): UpdateCheckResult {
+  const currentVersion = app.getVersion();
+  try {
+    const { autoUpdater } = electronUpdater;
+    autoUpdater.quitAndInstall(false, true);
+    return {
+      status: "installing",
+      currentVersion,
+      message: "正在重启并安装更新。"
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      currentVersion,
+      message: error instanceof Error ? error.message : "安装更新失败。"
     };
   }
 }
@@ -89,6 +123,26 @@ export function markNoticeRead(settings: AppSettings, noticeId: string): AppSett
       readNoticeIds
     }
   };
+}
+
+function readUpdateUnavailable(network: NetworkSettings, currentVersion: string): UpdateCheckResult | undefined {
+  if (!network.updateFeedUrl.trim()) {
+    return {
+      status: "disabled",
+      currentVersion,
+      message: "还没有配置更新源。"
+    };
+  }
+
+  if (!app.isPackaged) {
+    return {
+      status: "disabled",
+      currentVersion,
+      message: "开发模式不会执行安装包更新检查。打包安装后会自动启用。"
+    };
+  }
+
+  return undefined;
 }
 
 function readNotices(data: unknown): RemoteNotice[] {

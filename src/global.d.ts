@@ -40,6 +40,8 @@ declare global {
       heartbeatGreeting(prompt: string): Promise<ChatResponse>;
       testModel(model: ModelProfile): Promise<string>;
       checkUpdates(): Promise<UpdateCheckResult>;
+      downloadUpdate(): Promise<UpdateCheckResult>;
+      installUpdate(): Promise<UpdateCheckResult>;
       checkNotices(): Promise<{ notices: RemoteNotice[]; checkedAt: string; message?: string }>;
       markNoticeRead(noticeId: string): Promise<PetAppState>;
       chooseWorkspace(): Promise<PetAppState>;
