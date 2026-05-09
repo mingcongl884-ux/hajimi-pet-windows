@@ -2,6 +2,13 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.32 - 2026-05-09
+
+- Bundled Tencent's WeChat ClawBot installer CLI and use it before falling back to online `npx`.
+- Fixed the visible Windows terminal launch for Feishu/WeChat channel setup.
+- Made each project in the Codex-like sidebar expandable/collapsible with its own conversations.
+- Moved pet bubbles lower and removed the bubble shadow.
+
 ## 0.1.31 - 2026-05-09
 
 - Fixed update checks reading an older unsaved network configuration when the system page URL field had not blurred yet.

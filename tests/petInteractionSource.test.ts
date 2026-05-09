@@ -30,9 +30,10 @@ describe("pet interaction source", () => {
   it("keeps the confirmed Codex-like bubble placement around the pet", () => {
     expect(stylesSource).toContain("--pet-anchor-x: 495px");
     expect(stylesSource).toContain("--bubble-x: 25px");
-    expect(stylesSource).toContain("--bubble-y: 277px");
+    expect(stylesSource).toContain("--bubble-y: 292px");
     expect(stylesSource).toContain("--bubble-width: 404px");
-    expect(stylesSource).toMatch(/\.pet-bubble\s*\{[\s\S]*border-radius: 14px/);
+    expect(stylesSource).toMatch(/\.pet-bubble\s*\{[^}]*border-radius: 14px/);
+    expect(stylesSource).toMatch(/\.pet-bubble\s*\{[^}]*box-shadow: none/);
   });
 
   it("keeps transparent pet-window areas click-through", () => {

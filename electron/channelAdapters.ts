@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import type { ChannelProvider, ChannelSettings } from "../src/lib/channels.js";
+
+const require = createRequire(import.meta.url);
 
 export type ChannelAdapterResult = {
   provider: ChannelProvider;
@@ -23,13 +26,12 @@ export async function startChannelAdapter(channel: ChannelSettings): Promise<Cha
   }
 
   if (provider === "wechat") {
-    const command = channel.wechat?.pluginCommand.trim()
-      || "npx -y @tencent-weixin/openclaw-weixin-cli@latest install";
+    const command = buildWeixinInstallerCommand(channel);
     launchVisiblePowerShell(command, "哈基Mi 微信ClawBot");
     return {
       provider,
       status: "starting",
-      message: "已打开微信 ClawBot 安装/扫码终端。用微信扫描终端二维码并确认授权后，再点“测试通道”检查状态。"
+      message: "已打开微信 ClawBot 内置安装/扫码终端。用微信扫描终端二维码并确认授权后，再点“测试通道”检查状态。"
     };
   }
 
@@ -67,13 +69,43 @@ export async function testChannelAdapter(channel: ChannelSettings): Promise<Chan
 }
 
 function launchVisiblePowerShell(command: string, title: string) {
-  const escaped = command.replace(/"/g, '\\"');
-  const child = spawn("cmd.exe", ["/c", "start", `"${title}"`, "powershell.exe", "-NoExit", "-NoProfile", "-Command", escaped], {
+  const titledCommand = `$Host.UI.RawUI.WindowTitle = ${quotePowerShellString(title)}; ${command}`;
+  const child = spawn("powershell.exe", ["-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", titledCommand], {
     detached: true,
     windowsHide: false,
     stdio: "ignore"
   });
   child.unref();
+}
+
+function buildWeixinInstallerCommand(channel: ChannelSettings): string {
+  const fallback = channel.wechat?.pluginCommand.trim()
+    || "npx -y @tencent-weixin/openclaw-weixin-cli@latest install";
+  const cliPath = resolveBundledWeixinInstaller();
+  if (!cliPath) {
+    return fallback;
+  }
+
+  return [
+    `$env:ELECTRON_RUN_AS_NODE = '1'`,
+    `& ${quotePowerShellString(process.execPath)} ${quotePowerShellString(cliPath)} install`,
+    `if ($LASTEXITCODE -ne 0) {`,
+    `  Write-Host '内置微信 ClawBot 安装器未完成，改用在线 npx 安装...'`,
+    `  ${fallback}`,
+    `}`
+  ].join("; ");
+}
+
+function resolveBundledWeixinInstaller(): string | undefined {
+  try {
+    return require.resolve("@tencent-weixin/openclaw-weixin-cli/cli.mjs");
+  } catch {
+    return undefined;
+  }
+}
+
+function quotePowerShellString(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 function runOpenClaw(args: string[], timeoutMs: number): Promise<{ code: number | null; output: string }> {

@@ -16,6 +16,8 @@ describe("channel adapter source", () => {
     expect(adapterSource).toContain('provider === "feishu"');
     expect(adapterSource).toContain('provider === "wechat"');
     expect(adapterSource).toContain("@tencent-weixin/openclaw-weixin-cli@latest install");
+    expect(adapterSource).toContain("@tencent-weixin/openclaw-weixin-cli/cli.mjs");
+    expect(adapterSource).toContain("ELECTRON_RUN_AS_NODE");
     expect(adapterSource).toContain('"channels", "status", "--probe"');
     expect(adapterSource).toContain("launchVisiblePowerShell");
   });

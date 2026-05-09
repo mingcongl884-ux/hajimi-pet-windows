@@ -46,7 +46,7 @@ button:disabled {
   height: 100%;
   --pet-anchor-x: 495px;
   --bubble-x: 25px;
-  --bubble-y: 277px;
+  --bubble-y: 292px;
   --bubble-width: 404px;
   background: transparent;
   color: var(--ink);
@@ -356,7 +356,7 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.98);
-  box-shadow: var(--shadow-popover);
+  box-shadow: none;
   color: var(--ink);
   animation: bubble-rise 180ms ease-out;
 }
@@ -1349,14 +1349,41 @@ button:disabled {
 
 .codex-project-list {
   display: grid;
-  gap: 3px;
+  gap: 5px;
+  min-height: 0;
+  overflow: auto;
 }
 
 .codex-project-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 26px;
-  align-items: center;
+  gap: 2px;
   border-radius: 7px;
+}
+
+.codex-project-header {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 26px 26px;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.codex-project-new-conversation,
+.codex-project-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-muted);
+}
+
+.codex-project-new-conversation:hover,
+.codex-project-toggle:hover {
+  background: var(--surface-subtle);
+  color: var(--ink);
 }
 
 .codex-project-item:hover,
@@ -1383,7 +1410,16 @@ button:disabled {
 }
 
 .codex-project-item:hover .codex-project-delete,
+.codex-project-item:hover .codex-project-new-conversation,
 .codex-project-item.active .codex-project-delete {
+  opacity: 1;
+}
+
+.codex-project-new-conversation {
+  opacity: 0;
+}
+
+.codex-project-item.active .codex-project-new-conversation {
   opacity: 1;
 }
 
@@ -1411,6 +1447,12 @@ button:disabled {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.codex-project-conversations {
+  display: grid;
+  gap: 2px;
+  padding: 0 2px 4px 26px;
 }
 
 .codex-conversation-rail {

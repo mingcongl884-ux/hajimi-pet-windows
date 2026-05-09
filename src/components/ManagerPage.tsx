@@ -2,6 +2,8 @@ import {
   Bot,
   BriefcaseBusiness,
   Check,
+  ChevronDown,
+  ChevronRight,
   Download,
   FolderOpen,
   MessageCircle,
@@ -20,7 +22,7 @@ import {
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import type { ChannelAdapterResult } from "../../electron/channelAdapters";
 import type { UpdateCheckResult } from "../../electron/networkClient";
-import type { AgentPermissionMode, AppSettings, ModelProfile, ModelProvider, PetConversationMode } from "../../electron/settingsStore";
+import type { AgentPermissionMode, AppSettings, ModelProfile, ModelProvider, PetConversation, PetConversationMode } from "../../electron/settingsStore";
 import type { RemoteNotice } from "../../electron/settingsStore";
 import type { PetAppState } from "../global";
 import { toggleActivePetId } from "../lib/activePets";
@@ -132,6 +134,9 @@ export default function ManagerPage({
 }: Props) {
   const [section, setSection] = useState<ManagerSection>("office");
   const [settings, setSettings] = useState(ensureProjects(ensureModelProfiles(state.settings)));
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState<string[]>(() =>
+    settings.projects.filter((project) => project.id !== settings.activeProjectId).map((project) => project.id)
+  );
   const [saving, setSaving] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string>();
   const [testMessage, setTestMessage] = useState<string>();
@@ -149,6 +154,13 @@ export default function ManagerPage({
   const officeFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setSettings(ensureProjects(ensureModelProfiles(state.settings))), [state.settings]);
+  useEffect(() => {
+    setCollapsedProjectIds((projectIds) =>
+      projectIds.filter((projectId) =>
+        projectId !== settings.activeProjectId && settings.projects.some((project) => project.id === projectId)
+      )
+    );
+  }, [settings.activeProjectId, settings.projects]);
 
   async function save(next = settings) {
     setSaving(true);
@@ -438,6 +450,19 @@ export default function ManagerPage({
     await onSwitchConversation(conversationId);
   }
 
+  async function switchProjectFromRail(projectId: string) {
+    setCollapsedProjectIds((projectIds) => projectIds.filter((item) => item !== projectId));
+    await onSwitchProject(projectId);
+  }
+
+  function toggleProjectCollapsed(projectId: string) {
+    setCollapsedProjectIds((projectIds) =>
+      projectIds.includes(projectId)
+        ? projectIds.filter((item) => item !== projectId)
+        : [...projectIds, projectId]
+    );
+  }
+
   function startRenameConversation(conversationId: string, title: string) {
     setRenamingConversationId(conversationId);
     setRenamingTitle(title);
@@ -471,6 +496,58 @@ export default function ManagerPage({
       cancelRenameConversation();
     }
     await onDeleteConversation(conversationId);
+  }
+
+  function renderConversationRow(conversation: PetConversation) {
+    return (
+      <div
+        className={conversation.id === settings.activeConversationId ? "codex-conversation-row active" : "codex-conversation-row"}
+        key={conversation.id}
+      >
+        {renamingConversationId === conversation.id ? (
+          <form
+            className="codex-conversation-rename"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void finishRenameConversation(conversation.id);
+            }}
+          >
+            <input
+              autoFocus
+              value={renamingTitle}
+              onChange={(event) => setRenamingTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelRenameConversation();
+                }
+              }}
+            />
+            <button type="submit" title="保存名称">
+              <Check size={14} />
+            </button>
+            <button type="button" title="取消" onClick={cancelRenameConversation}>
+              <X size={14} />
+            </button>
+          </form>
+        ) : (
+          <>
+            <button className="codex-conversation-main" onClick={() => void switchConversation(conversation.id)}>
+              <span>{conversation.title}</span>
+              <small>{conversation.mode === "agent" ? "办公" : "聊天"} · {conversation.messages.length}</small>
+            </button>
+            <div className="codex-conversation-actions">
+              <button title="重命名会话" onClick={() => startRenameConversation(conversation.id, conversation.title)}>
+                <Pencil size={13} />
+              </button>
+              <button title="删除会话" onClick={() => void deleteConversationFromRail(conversation.id)}>
+                <Trash2 size={13} />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
   }
 
   async function submitOfficeMessage(event: FormEvent) {
@@ -516,89 +593,72 @@ export default function ManagerPage({
           </div>
           <div className="codex-project-list">
             {settings.projects.length === 0 && (
-              <button className="codex-project-row active" onClick={() => void chooseWorkspace()}>
-                <FolderOpen size={15} />
-                <span>{projectName}</span>
-              </button>
-            )}
-            {settings.projects.map((project) => (
-              <div className={project.id === settings.activeProjectId ? "codex-project-item active" : "codex-project-item"} key={project.id}>
-                <button className="codex-project-row" onClick={() => void onSwitchProject(project.id)}>
-                  <FolderOpen size={15} />
-                  <span>{project.name}</span>
-                </button>
-                <button
-                  className="codex-project-delete"
-                  disabled={settings.projects.length <= 1}
-                  title="移除项目"
-                  onClick={() => void onDeleteProject(project.id)}
-                >
-                  <Trash2 size={13} />
-                </button>
+              <div className="codex-project-item active">
+                <div className="codex-project-header">
+                  <button className="codex-project-toggle" title="展开会话" onClick={() => undefined}>
+                    <ChevronDown size={14} />
+                  </button>
+                  <button className="codex-project-row active" onClick={() => void chooseWorkspace()}>
+                    <FolderOpen size={15} />
+                    <span>{projectName}</span>
+                  </button>
+                  <button className="codex-project-new-conversation" title="新建办公会话" onClick={() => void onCreateConversation("agent")}>
+                    <Plus size={13} />
+                  </button>
+                </div>
+                <div className="codex-project-conversations">
+                  {visibleConversations.map(renderConversationRow)}
+                </div>
               </div>
-            ))}
+            )}
+            {settings.projects.map((project) => {
+              const projectConversations = settings.conversations.filter(
+                (conversation) => (conversation.projectId || "") === project.id
+              );
+              const expanded = !collapsedProjectIds.includes(project.id);
+              const active = project.id === settings.activeProjectId;
+              return (
+                <div className={active ? "codex-project-item active" : "codex-project-item"} key={project.id}>
+                  <div className="codex-project-header">
+                    <button
+                      className="codex-project-toggle"
+                      title={expanded ? "收起会话" : "展开会话"}
+                      onClick={() => toggleProjectCollapsed(project.id)}
+                    >
+                      {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </button>
+                    <button className="codex-project-row" onClick={() => void switchProjectFromRail(project.id)}>
+                      <FolderOpen size={15} />
+                      <span>{project.name}</span>
+                    </button>
+                    {active && (
+                      <button
+                        className="codex-project-new-conversation"
+                        title="新建办公会话"
+                        onClick={() => void onCreateConversation("agent")}
+                      >
+                        <Plus size={13} />
+                      </button>
+                    )}
+                    <button
+                      className="codex-project-delete"
+                      disabled={settings.projects.length <= 1}
+                      title="移除项目"
+                      onClick={() => void onDeleteProject(project.id)}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                  {expanded && (
+                    <div className="codex-project-conversations">
+                      {projectConversations.map(renderConversationRow)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <p className="codex-project-path">{activeProject?.path || settings.agent.workspaceDir || "暂无项目"}</p>
-        </section>
-
-        <section className="codex-sidebar-section grow">
-          <div className="codex-sidebar-heading">
-            <p className="codex-sidebar-label">对话</p>
-            <button title="新建办公会话" onClick={() => void onCreateConversation("agent")}>
-              <Plus size={14} />
-            </button>
-          </div>
-          <div className="codex-conversation-rail">
-            {visibleConversations.map((conversation) => (
-              <div
-                className={conversation.id === settings.activeConversationId ? "codex-conversation-row active" : "codex-conversation-row"}
-                key={conversation.id}
-              >
-                {renamingConversationId === conversation.id ? (
-                  <form
-                    className="codex-conversation-rename"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void finishRenameConversation(conversation.id);
-                    }}
-                  >
-                    <input
-                      autoFocus
-                      value={renamingTitle}
-                      onChange={(event) => setRenamingTitle(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          cancelRenameConversation();
-                        }
-                      }}
-                    />
-                    <button type="submit" title="保存名称">
-                      <Check size={14} />
-                    </button>
-                    <button type="button" title="取消" onClick={cancelRenameConversation}>
-                      <X size={14} />
-                    </button>
-                  </form>
-                ) : (
-                  <>
-                    <button className="codex-conversation-main" onClick={() => void switchConversation(conversation.id)}>
-                      <span>{conversation.title}</span>
-                      <small>{conversation.mode === "agent" ? "办公" : "聊天"} · {conversation.messages.length}</small>
-                    </button>
-                    <div className="codex-conversation-actions">
-                      <button title="重命名会话" onClick={() => startRenameConversation(conversation.id, conversation.title)}>
-                        <Pencil size={13} />
-                      </button>
-                      <button title="删除会话" onClick={() => void deleteConversationFromRail(conversation.id)}>
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
         </section>
 
         <nav className="codex-sidebar-nav" aria-label="管理">
@@ -987,7 +1047,7 @@ export default function ManagerPage({
                         onBlur={() => void save()}
                       />
                     </label>
-                    <p className="manager-note">使用微信官方 ClawBot 插件接入 OpenClaw。点击启动会打开终端运行安装命令并展示二维码。</p>
+                    <p className="manager-note">已内置微信官方 ClawBot 安装器。点击启动会打开终端安装插件并展示二维码；OpenClaw 本体仍需在本机可用。</p>
                   </>
                 )}
                 <div className="channel-steps">

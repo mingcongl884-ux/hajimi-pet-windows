@@ -9,6 +9,9 @@ describe("manager office workspace source", () => {
     expect(managerSource).toContain("manager-app-shell");
     expect(managerSource).toContain("codex-sidebar");
     expect(managerSource).toContain("codex-project-list");
+    expect(managerSource).toContain("collapsedProjectIds");
+    expect(managerSource).toContain("projectConversations");
+    expect(managerSource).toContain("codex-project-conversations");
     expect(managerSource).toContain("onSwitchProject");
     expect(managerSource).toContain("onDeleteProject");
     expect(managerSource).toContain("codex-chat-main");
