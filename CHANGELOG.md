@@ -2,6 +2,12 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.33 - 2026-05-09
+
+- Bundled OpenClaw and a Node 22 runtime, then generate a local `openclaw.cmd` shim so WeChat setup can proceed without a global OpenClaw install.
+- Kept OpenClaw state isolated under the HaJiMi user data directory.
+- Compact the Codex-like sidebar navigation so management tabs stay tucked in the corner.
+
 ## 0.1.32 - 2026-05-09
 
 - Bundled Tencent's WeChat ClawBot installer CLI and use it before falling back to online `npx`.

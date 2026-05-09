@@ -1276,8 +1276,8 @@ button:disabled {
 
 .codex-sidebar {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 18px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
   min-width: 0;
   padding: 16px 14px;
   border-right: 1px solid var(--line);
@@ -1560,7 +1560,19 @@ button:disabled {
 
 .codex-sidebar-nav {
   display: grid;
-  gap: 4px;
+  align-content: end;
+  gap: 2px;
+}
+
+.codex-sidebar-nav button {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.codex-sidebar-nav svg {
+  width: 14px;
+  height: 14px;
 }
 
 .codex-chat-main {

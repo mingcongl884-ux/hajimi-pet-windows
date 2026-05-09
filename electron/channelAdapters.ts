@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
+import { app } from "electron";
 import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { ChannelProvider, ChannelSettings } from "../src/lib/channels.js";
 
 const require = createRequire(import.meta.url);
@@ -17,7 +21,7 @@ export async function startChannelAdapter(channel: ChannelSettings): Promise<Cha
     if (!channel.feishu?.appId.trim() || !channel.feishu.appSecret.trim()) {
       return { provider, status: "error", message: "请先填写飞书 App ID 和 App Secret。" };
     }
-    launchVisiblePowerShell("openclaw channels add; openclaw gateway status", "哈基Mi 飞书通道");
+    await launchVisiblePowerShell("openclaw channels add; openclaw gateway status", "哈基Mi 飞书通道");
     return {
       provider,
       status: "starting",
@@ -27,7 +31,7 @@ export async function startChannelAdapter(channel: ChannelSettings): Promise<Cha
 
   if (provider === "wechat") {
     const command = buildWeixinInstallerCommand(channel);
-    launchVisiblePowerShell(command, "哈基Mi 微信ClawBot");
+    await launchVisiblePowerShell(command, "哈基Mi 微信ClawBot");
     return {
       provider,
       status: "starting",
@@ -68,8 +72,9 @@ export async function testChannelAdapter(channel: ChannelSettings): Promise<Chan
   };
 }
 
-function launchVisiblePowerShell(command: string, title: string) {
-  const titledCommand = `$Host.UI.RawUI.WindowTitle = ${quotePowerShellString(title)}; ${command}`;
+async function launchVisiblePowerShell(command: string, title: string) {
+  const envSetup = await buildOpenClawShellEnvironment();
+  const titledCommand = `$Host.UI.RawUI.WindowTitle = ${quotePowerShellString(title)}; ${envSetup}; ${command}`;
   const child = spawn("powershell.exe", ["-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", titledCommand], {
     detached: true,
     windowsHide: false,
@@ -82,13 +87,13 @@ function buildWeixinInstallerCommand(channel: ChannelSettings): string {
   const fallback = channel.wechat?.pluginCommand.trim()
     || "npx -y @tencent-weixin/openclaw-weixin-cli@latest install";
   const cliPath = resolveBundledWeixinInstaller();
+  const nodeRuntime = resolveNodeRuntime();
   if (!cliPath) {
     return fallback;
   }
 
   return [
-    `$env:ELECTRON_RUN_AS_NODE = '1'`,
-    `& ${quotePowerShellString(process.execPath)} ${quotePowerShellString(cliPath)} install`,
+    `& ${quotePowerShellString(nodeRuntime)} ${quotePowerShellString(cliPath)} install`,
     `if ($LASTEXITCODE -ne 0) {`,
     `  Write-Host '内置微信 ClawBot 安装器未完成，改用在线 npx 安装...'`,
     `  ${fallback}`,
@@ -96,12 +101,77 @@ function buildWeixinInstallerCommand(channel: ChannelSettings): string {
   ].join("; ");
 }
 
-function resolveBundledWeixinInstaller(): string | undefined {
+async function buildOpenClawShellEnvironment(): Promise<string> {
+  const shimDir = await ensureBundledOpenClawShim();
+  const stateDir = bundledOpenClawStateDir();
+  return [
+    `$env:OPENCLAW_STATE_DIR = ${quotePowerShellString(stateDir)}`,
+    `$env:PATH = ${quotePowerShellString(`${shimDir};`)} + $env:PATH`
+  ].join("; ");
+}
+
+async function ensureBundledOpenClawShim(): Promise<string> {
+  const shimDir = join(app.getPath("userData"), "openclaw-runtime");
+  await mkdir(shimDir, { recursive: true });
+  const openClawPath = resolveBundledOpenClawCli();
+  if (!openClawPath) {
+    return shimDir;
+  }
+
+  const nodeRuntime = resolveNodeRuntime();
+  const shim = [
+    "@echo off",
+    "setlocal",
+    `"${nodeRuntime}" "${openClawPath}" %*`,
+    "endlocal"
+  ].join("\r\n");
+  await writeFile(join(shimDir, "openclaw.cmd"), shim, "utf8");
+  return shimDir;
+}
+
+function resolveBundledOpenClawCli(): string | undefined {
   try {
-    return require.resolve("@tencent-weixin/openclaw-weixin-cli/cli.mjs");
+    return normalizeAsarUnpackedPath(require.resolve("openclaw/openclaw.mjs"));
   } catch {
     return undefined;
   }
+}
+
+function resolveBundledWeixinInstaller(): string | undefined {
+  try {
+    return normalizeAsarUnpackedPath(require.resolve("@tencent-weixin/openclaw-weixin-cli/cli.mjs"));
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveNodeRuntime(): string {
+  return resolveBundledNodeRuntime() ?? "node";
+}
+
+function resolveBundledNodeRuntime(): string | undefined {
+  try {
+    const nodeRoot = dirname(require.resolve("node/package.json"));
+    const executableName = process.platform === "win32" ? "node.exe" : "node";
+    const candidate = normalizeAsarUnpackedPath(join(nodeRoot, "bin", executableName));
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+
+    const packageBin = normalizeAsarUnpackedPath(require.resolve("node/bin/node"));
+    const packageBinCandidate = process.platform === "win32" ? `${packageBin}.exe` : packageBin;
+    if (existsSync(packageBinCandidate)) {
+      return packageBinCandidate;
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function normalizeAsarUnpackedPath(value: string): string {
+  return value.replace(/\.asar([\\/])/, ".asar.unpacked$1");
 }
 
 function quotePowerShellString(value: string): string {
@@ -110,7 +180,14 @@ function quotePowerShellString(value: string): string {
 
 function runOpenClaw(args: string[], timeoutMs: number): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve) => {
-    const child = spawn("openclaw", args, { windowsHide: true });
+    const bundledCli = resolveBundledOpenClawCli();
+    const child = spawn(bundledCli ? resolveNodeRuntime() : "openclaw", bundledCli ? [bundledCli, ...args] : args, {
+      env: {
+        ...process.env,
+        OPENCLAW_STATE_DIR: bundledOpenClawStateDir()
+      },
+      windowsHide: true
+    });
     let output = "";
     const timeout = setTimeout(() => {
       child.kill();
@@ -131,4 +208,8 @@ function runOpenClaw(args: string[], timeoutMs: number): Promise<{ code: number 
       resolve({ code, output: output.trim() });
     });
   });
+}
+
+function bundledOpenClawStateDir(): string {
+  return join(app.getPath("userData"), "openclaw-state");
 }

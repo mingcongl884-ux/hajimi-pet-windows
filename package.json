@@ -1,6 +1,6 @@
 {
   "name": "xiaomi-pet-windows",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "description": "HaJiMi standalone Windows desktop pet with importable pets and OpenAI-compatible chat.",
   "private": true,
   "type": "module",
@@ -20,6 +20,11 @@
     "productName": "哈基Mi",
     "artifactName": "HaJiMi-Setup-${version}.${ext}",
     "afterPack": "scripts/after-pack.cjs",
+    "asarUnpack": [
+      "node_modules/**"
+    ],
+    "compression": "store",
+    "npmRebuild": false,
     "files": [
       "dist/renderer/**/*",
       "dist-electron/**/*",
@@ -66,6 +71,8 @@
     "image-size": "^1.1.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.468.0",
+    "node": "^22.14.0",
+    "openclaw": "^2026.5.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

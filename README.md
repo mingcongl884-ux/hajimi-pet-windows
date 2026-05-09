@@ -104,6 +104,7 @@ Installers are generated in `dist/`.
 | 0.1.30 | `HaJiMi-Setup-0.1.30.exe` | Uses Tencent's official WeChat ClawBot setup command, opens channel setup terminals, checks OpenClaw channel status, and adds Codex-like multi-project management. |
 | 0.1.31 | `HaJiMi-Setup-0.1.31.exe` | Fixes update checks for older empty feed settings and saves current network fields before checking. |
 | 0.1.32 | `HaJiMi-Setup-0.1.32.exe` | Bundles the WeChat ClawBot installer, fixes setup terminal launch, adds collapsible project conversations, and lowers/shadow-cleans pet bubbles. |
+| 0.1.33 | `HaJiMi-Setup-0.1.33.exe` | Bundles OpenClaw plus Node 22, creates a local OpenClaw shim for WeChat setup, isolates OpenClaw state under HaJiMi data, and compacts sidebar tabs. |
 
 Use the latest installer unless you need to compare a previous build.
 
