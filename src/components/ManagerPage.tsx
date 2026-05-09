@@ -842,7 +842,7 @@ export default function ManagerPage({
                 更新源 URL
                 <input
                   value={settings.network.updateFeedUrl}
-                  placeholder="例如：https://example.com/hajimi/releases"
+                  placeholder="https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/latest/download"
                   onChange={(event) =>
                     setSettings({
                       ...settings,
@@ -856,7 +856,7 @@ export default function ManagerPage({
                 公告 JSON URL
                 <input
                   value={settings.network.noticeFeedUrl}
-                  placeholder="例如：https://example.com/hajimi/notices.json"
+                  placeholder="https://raw.githubusercontent.com/mingcongl884-ux/hajimi-pet-windows/main/notices.json"
                   onChange={(event) =>
                     setSettings({
                       ...settings,

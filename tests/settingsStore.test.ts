@@ -87,6 +87,10 @@ describe("SettingsStore", () => {
       playTogetherEnabled: true,
       agent: {
         permissionMode: "default"
+      },
+      network: {
+        updateFeedUrl: "https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/latest/download",
+        noticeFeedUrl: "https://raw.githubusercontent.com/mingcongl884-ux/hajimi-pet-windows/main/notices.json"
       }
     });
   });

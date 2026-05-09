@@ -54,22 +54,26 @@ Model: claude-sonnet-4-6
 
 Other models can still use ordinary office mode through an OpenAI-compatible endpoint. To use another model in advanced mode, the gateway must be Anthropic/Claude-compatible.
 
-## Online Updates And Notices
+## GitHub Updates And Notices
 
-The system page has two network URLs:
+Fresh installs point to GitHub by default:
 
-- `更新源 URL`: a folder URL that hosts the Electron updater files, such as `latest.yml` and `HaJiMi-Setup-x.y.z.exe`.
-- `公告 JSON URL`: a JSON feed for announcements. See `notices.example.json`.
+- `更新源 URL`: `https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/latest/download`
+- `公告 JSON URL`: `https://raw.githubusercontent.com/mingcongl884-ux/hajimi-pet-windows/main/notices.json`
 
 The app checks these sources on startup when automatic checks are enabled, then repeats about every 6 hours while running. Manual checks are available in `系统 -> 联网更新与公告`.
 
-For a generic update server, publish the files generated in `dist/`:
+For GitHub updates to work for other people, the repository or hosted release assets must be public. Private repositories require authentication and cannot be read by normal installed clients.
+
+For each release, publish the files generated in `dist/` as GitHub Release assets:
 
 ```text
 HaJiMi-Setup-x.y.z.exe
 HaJiMi-Setup-x.y.z.exe.blockmap
 latest.yml
 ```
+
+For notices, edit `notices.json` on the default branch. The app accepts either an array of notices or `{ "notices": [...] }`.
 
 ## Installer Versions
 
@@ -92,6 +96,7 @@ Installers are generated in `dist/`.
 | 0.1.22 | `HaJiMi-Setup-0.1.22.exe` | Narrows pet-window mouse capture to visible controls and moves the pet chat panel closer. |
 | 0.1.23 | `HaJiMi-Setup-0.1.23.exe` | Removes the pet-side hover action toolbar and keeps pet click as the chat shortcut. |
 | 0.1.24 | `HaJiMi-Setup-0.1.24.exe` | Lowers the pet size slider minimum to a Codex-like small size. |
+| 0.1.25 | `HaJiMi-Setup-0.1.25.exe` | Uses GitHub Releases and `notices.json` as the default update and notice feeds. |
 
 Use the latest installer unless you need to compare a previous build.
 

@@ -93,6 +93,11 @@ export type SafeStorageAdapter = {
   decryptString(value: Buffer): string;
 };
 
+export const GITHUB_UPDATE_FEED_URL =
+  "https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/latest/download";
+export const GITHUB_NOTICE_FEED_URL =
+  "https://raw.githubusercontent.com/mingcongl884-ux/hajimi-pet-windows/main/notices.json";
+
 type StoredModelProfile = Omit<ModelProfile, "apiKey"> & {
   apiKey?: string;
   apiKeyEncrypted?: string;
@@ -149,8 +154,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   network: {
     autoCheckEnabled: true,
-    updateFeedUrl: "",
-    noticeFeedUrl: "",
+    updateFeedUrl: GITHUB_UPDATE_FEED_URL,
+    noticeFeedUrl: GITHUB_NOTICE_FEED_URL,
     readNoticeIds: []
   },
   activeConversationId: "default",

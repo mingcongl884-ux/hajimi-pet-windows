@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { checkRemoteNotices, markNoticeRead } from "../electron/networkClient";
-import { DEFAULT_SETTINGS } from "../electron/settingsStore";
+import { DEFAULT_SETTINGS, GITHUB_NOTICE_FEED_URL, GITHUB_UPDATE_FEED_URL } from "../electron/settingsStore";
 
 const networkClientSource = readFileSync(join(process.cwd(), "electron", "networkClient.ts"), "utf8");
 
@@ -11,6 +11,13 @@ describe("network client", () => {
     expect(networkClientSource).toContain('import electronUpdater from "electron-updater"');
     expect(networkClientSource).not.toContain('import { autoUpdater } from "electron-updater"');
     expect(networkClientSource).not.toContain("const { autoUpdater } = electronUpdater;\n\nexport type");
+  });
+
+  it("uses GitHub as the default public update and notice feed", () => {
+    expect(DEFAULT_SETTINGS.network.updateFeedUrl).toBe(GITHUB_UPDATE_FEED_URL);
+    expect(DEFAULT_SETTINGS.network.noticeFeedUrl).toBe(GITHUB_NOTICE_FEED_URL);
+    expect(GITHUB_UPDATE_FEED_URL).toBe("https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/latest/download");
+    expect(GITHUB_NOTICE_FEED_URL).toBe("https://raw.githubusercontent.com/mingcongl884-ux/hajimi-pet-windows/main/notices.json");
   });
 
   it("reads unread notices from a remote JSON feed", async () => {

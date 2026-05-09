@@ -2,6 +2,12 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.25 - 2026-05-09
+
+- Set GitHub Releases as the default update feed.
+- Added `notices.json` as the default GitHub-hosted announcement feed.
+- Documented the public repository requirement for installed clients.
+
 ## 0.1.24 - 2026-05-09
 
 - Lowered the pet size slider minimum to `0.5` for a Codex-like small pet size.
