@@ -98,6 +98,7 @@ Installers are generated in `dist/`.
 | 0.1.24 | `HaJiMi-Setup-0.1.24.exe` | Lowers the pet size slider minimum to a Codex-like small size. |
 | 0.1.25 | `HaJiMi-Setup-0.1.25.exe` | Uses GitHub Releases and `notices.json` as the default update and notice feeds. |
 | 0.1.26 | `HaJiMi-Setup-0.1.26.exe` | Adds GitHub Actions release publishing, widens the manager window, and defaults fresh installs to the smallest pet size. |
+| 0.1.27 | `HaJiMi-Setup-0.1.27.exe` | Fixes release workflow tests across GitHub runner time zones. |
 
 Use the latest installer unless you need to compare a previous build.
 

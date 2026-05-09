@@ -8,20 +8,20 @@ import {
 
 describe("heartbeat greeting schedule", () => {
   it("returns the morning slot around 09:40 only once per day", () => {
-    const due = getDueGreetingSlot(new Date("2026-05-08T09:41:00+08:00"), []);
+    const due = getDueGreetingSlot(localDate(2026, 5, 8, 9, 41), []);
     expect(due?.id).toBe("morning");
 
-    const repeated = getDueGreetingSlot(new Date("2026-05-08T09:42:00+08:00"), [due!.key]);
+    const repeated = getDueGreetingSlot(localDate(2026, 5, 8, 9, 42), [due!.key]);
     expect(repeated).toBeUndefined();
   });
 
   it("supports lunch and after-work slots", () => {
-    expect(getDueGreetingSlot(new Date("2026-05-08T12:05:00+08:00"), [])?.id).toBe("lunch");
-    expect(getDueGreetingSlot(new Date("2026-05-08T18:24:00+08:00"), [])?.id).toBe("afterWork");
+    expect(getDueGreetingSlot(localDate(2026, 5, 8, 12, 5), [])?.id).toBe("lunch");
+    expect(getDueGreetingSlot(localDate(2026, 5, 8, 18, 24), [])?.id).toBe("afterWork");
   });
 
   it("does not trigger outside the configured windows", () => {
-    expect(getDueGreetingSlot(new Date("2026-05-08T10:20:00+08:00"), [])).toBeUndefined();
+    expect(getDueGreetingSlot(localDate(2026, 5, 8, 10, 20), [])).toBeUndefined();
   });
 });
 
@@ -37,6 +37,10 @@ describe("heartbeat greeting content", () => {
     expect(buildHeartbeatPrompt("afterWork")).toContain("18:20");
   });
 });
+
+function localDate(year: number, month: number, day: number, hour: number, minute: number) {
+  return new Date(year, month - 1, day, hour, minute, 0, 0);
+}
 
 describe("bubble collapse behavior", () => {
   it("collapses busy conversations after the idle threshold", () => {

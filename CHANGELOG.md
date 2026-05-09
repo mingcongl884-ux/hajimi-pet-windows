@@ -2,6 +2,10 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.27 - 2026-05-09
+
+- Fixed GitHub Actions heartbeat schedule tests so release publishing works consistently across runner time zones.
+
 ## 0.1.26 - 2026-05-09
 
 - Added a GitHub Actions release workflow to build and upload Windows installer assets from tags.
