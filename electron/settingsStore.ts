@@ -280,6 +280,8 @@ export class SettingsStore {
       network: {
         ...DEFAULT_SETTINGS.network,
         ...stored.network,
+        updateFeedUrl: stored.network?.updateFeedUrl?.trim() || DEFAULT_SETTINGS.network.updateFeedUrl,
+        noticeFeedUrl: stored.network?.noticeFeedUrl?.trim() || DEFAULT_SETTINGS.network.noticeFeedUrl,
         readNoticeIds: stored.network?.readNoticeIds ?? []
       },
       channels: cloneChannelSettings(stored.channels),

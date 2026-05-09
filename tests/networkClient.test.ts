@@ -20,6 +20,15 @@ describe("network client", () => {
     expect(GITHUB_NOTICE_FEED_URL).toBe("https://raw.githubusercontent.com/mingcongl884-ux/hajimi-pet-windows/main/notices.json");
   });
 
+  it("manager saves the current network settings before checking remote feeds", () => {
+    const managerSource = readFileSync(join(process.cwd(), "src", "components", "ManagerPage.tsx"), "utf8");
+
+    expect(managerSource).toContain("await onSave(ensureProjects(ensureModelProfiles(settings)));");
+    expect(managerSource.indexOf("await onSave(ensureProjects(ensureModelProfiles(settings)));")).toBeLessThan(
+      managerSource.indexOf("const result = await onCheckUpdates();")
+    );
+  });
+
   it("reads unread notices from a remote JSON feed", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

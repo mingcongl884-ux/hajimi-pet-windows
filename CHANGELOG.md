@@ -2,6 +2,11 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.31 - 2026-05-09
+
+- Fixed update checks reading an older unsaved network configuration when the system page URL field had not blurred yet.
+- Migrated older empty update/notice URLs back to the GitHub defaults so installed clients can find releases again.
+
 ## 0.1.30 - 2026-05-09
 
 - Updated WeChat channel setup to use Tencent's official ClawBot command: `npx -y @tencent-weixin/openclaw-weixin-cli@latest install`.

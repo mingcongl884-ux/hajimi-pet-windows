@@ -211,6 +211,7 @@ export default function ManagerPage({
     setCheckingNetwork(true);
     setNetworkMessage(undefined);
     try {
+      await onSave(ensureProjects(ensureModelProfiles(settings)));
       const result = await onCheckUpdates();
       setUpdateStatus(result.status);
       setAvailableUpdateVersion(result.status === "available" ? result.version : undefined);
@@ -227,6 +228,7 @@ export default function ManagerPage({
     setCheckingNetwork(true);
     setNetworkMessage("正在下载更新，请稍候。");
     try {
+      await onSave(ensureProjects(ensureModelProfiles(settings)));
       const result = await onDownloadUpdate();
       setUpdateStatus(result.status);
       setNetworkMessage(result.message ?? "更新已下载，点击重启安装即可完成更新。");
@@ -256,6 +258,7 @@ export default function ManagerPage({
     setCheckingNetwork(true);
     setNetworkMessage(undefined);
     try {
+      await onSave(ensureProjects(ensureModelProfiles(settings)));
       const result = await onCheckNotices();
       const firstNotice = result.notices[0];
       setNetworkMessage(firstNotice ? `${firstNotice.title}：${firstNotice.message}` : result.message ?? "暂无新公告。");

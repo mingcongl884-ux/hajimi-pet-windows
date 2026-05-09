@@ -1,8 +1,8 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, SettingsStore } from "../electron/settingsStore";
+import { DEFAULT_SETTINGS, GITHUB_NOTICE_FEED_URL, GITHUB_UPDATE_FEED_URL, SettingsStore } from "../electron/settingsStore";
 
 describe("SettingsStore", () => {
   it("encrypts API keys when safe storage is available", async () => {
@@ -118,5 +118,23 @@ describe("SettingsStore", () => {
         permissionMode: "auto-review"
       }
     });
+  });
+
+  it("fills default update feeds when older settings stored empty strings", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pet-settings-"));
+    await writeFile(join(dir, "settings.json"), JSON.stringify({
+      ...DEFAULT_SETTINGS,
+      network: {
+        ...DEFAULT_SETTINGS.network,
+        updateFeedUrl: "",
+        noticeFeedUrl: ""
+      }
+    }), "utf8");
+    const store = new SettingsStore(dir);
+
+    const loaded = await store.loadSettings();
+
+    expect(loaded.network.updateFeedUrl).toBe(GITHUB_UPDATE_FEED_URL);
+    expect(loaded.network.noticeFeedUrl).toBe(GITHUB_NOTICE_FEED_URL);
   });
 });
