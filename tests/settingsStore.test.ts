@@ -81,7 +81,7 @@ describe("SettingsStore", () => {
 
     await expect(store.loadSettings()).resolves.toMatchObject({
       activePetId: "xiaomi",
-      petScale: 0.85,
+      petScale: 0.5,
       movementEnabled: true,
       movementIntensity: "lively",
       playTogetherEnabled: true,

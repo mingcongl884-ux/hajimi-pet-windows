@@ -101,8 +101,8 @@ async function createManagerWindow() {
   }
 
   managerWindow = new BrowserWindow({
-    width: 920,
-    height: 680,
+    width: 1280,
+    height: 720,
     minWidth: 760,
     minHeight: 560,
     title: "哈基Mi 管理",

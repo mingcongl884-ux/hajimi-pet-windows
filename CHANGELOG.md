@@ -2,6 +2,12 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.26 - 2026-05-09
+
+- Added a GitHub Actions release workflow to build and upload Windows installer assets from tags.
+- Made fresh installs start with the smallest pet scale.
+- Widened the default manager window.
+
 ## 0.1.25 - 2026-05-09
 
 - Set GitHub Releases as the default update feed.

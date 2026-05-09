@@ -54,4 +54,9 @@ describe("pet interaction source", () => {
     expect(managerSource).toContain('min="0.5"');
     expect(managerSource).toContain('step="0.05"');
   });
+
+  it("opens the manager in a wider default window", () => {
+    expect(mainSource).toContain("width: 1280");
+    expect(mainSource).toContain("height: 720");
+  });
 });

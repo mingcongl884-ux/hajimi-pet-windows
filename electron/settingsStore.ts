@@ -117,7 +117,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   activePetId: "xiaomi",
   activePetIds: ["xiaomi"],
   petDisplayNames: {},
-  petScale: 0.85,
+  petScale: 0.5,
   movementEnabled: true,
   movementIntensity: "lively",
   playTogetherEnabled: true,
