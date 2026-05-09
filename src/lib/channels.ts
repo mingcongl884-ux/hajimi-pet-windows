@@ -62,7 +62,7 @@ export function defaultChannelSettings(): ChannelSettings[] {
       bridgePort: 18011,
       wechat: {
         bridgeUrl: "http://127.0.0.1:18011",
-        pluginCommand: "npx -y @tencent-weixin/openclaw-weixin-cli@latest install"
+        pluginCommand: "openclaw channels login --channel openclaw-weixin --verbose"
       }
     }
   ];
@@ -96,9 +96,9 @@ export function findAllowedPeer(
 export function openClawSetupSteps(channel: ChannelSettings): OpenClawSetupStep[] {
   if (channel.provider === "wechat") {
     return [
-      { label: "安装微信插件", command: "npx -y @tencent-weixin/openclaw-weixin-cli@latest install" },
-      { label: "启用插件", command: "openclaw config set plugins.entries.openclaw-weixin.enabled true" },
-      { label: "扫码登录", command: "openclaw channels login --channel openclaw-weixin" },
+      { label: "准备内置插件", note: "哈基Mi 会自动复制微信 ClawBot、二维码依赖和 OpenClaw 运行文件。" },
+      { label: "启用插件", command: "openclaw plugins enable openclaw-weixin" },
+      { label: "扫码登录", command: "openclaw channels login --channel openclaw-weixin --verbose" },
       { label: "重启网关", command: "openclaw gateway restart" },
       { label: "检查通道", command: "openclaw channels status --probe" }
     ];

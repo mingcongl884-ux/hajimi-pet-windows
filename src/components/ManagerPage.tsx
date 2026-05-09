@@ -328,7 +328,7 @@ export default function ManagerPage({
           ...channel,
           wechat: {
             bridgeUrl: "http://127.0.0.1:18011",
-            pluginCommand: "npx -y @tencent-weixin/openclaw-weixin-cli@latest install",
+            pluginCommand: "openclaw channels login --channel openclaw-weixin --verbose",
             ...channel.wechat,
             ...patch
           }
@@ -1047,7 +1047,7 @@ export default function ManagerPage({
                         onBlur={() => void save()}
                       />
                     </label>
-                    <p className="manager-note">已内置微信官方 ClawBot 安装器。点击启动会打开终端安装插件并展示二维码；OpenClaw 本体仍需在本机可用。</p>
+                    <p className="manager-note">已内置微信官方 ClawBot 插件和 OpenClaw 运行文件。点击启动会打开终端准备插件并展示二维码。</p>
                   </>
                 )}
                 <div className="channel-steps">

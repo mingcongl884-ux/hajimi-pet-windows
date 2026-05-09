@@ -15,8 +15,12 @@ describe("channel adapter source", () => {
     expect(adapterSource).toContain("testChannelAdapter");
     expect(adapterSource).toContain('provider === "feishu"');
     expect(adapterSource).toContain('provider === "wechat"');
-    expect(adapterSource).toContain("@tencent-weixin/openclaw-weixin-cli@latest install");
-    expect(adapterSource).toContain("@tencent-weixin/openclaw-weixin-cli/cli.mjs");
+    expect(adapterSource).toContain("@tencent-weixin/openclaw-weixin/package.json");
+    expect(adapterSource).toContain("qrcode-terminal/package.json");
+    expect(adapterSource).toContain("zod/package.json");
+    expect(adapterSource).toContain("plugins registry --refresh");
+    expect(adapterSource).toContain("plugins enable openclaw-weixin");
+    expect(adapterSource).toContain("channels login --channel openclaw-weixin --verbose");
     expect(adapterSource).toContain("openclaw/openclaw.mjs");
     expect(adapterSource).toContain("node/package.json");
     expect(adapterSource).toContain("node/bin/node");

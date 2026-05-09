@@ -2,6 +2,12 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.35 - 2026-05-09
+
+- Bundle Tencent's WeChat ClawBot channel plugin itself and copy it into the isolated HaJiMi OpenClaw state directory instead of relying on the official npm installer path.
+- Copy the QR-code and Zod runtime dependencies beside the plugin, refresh the OpenClaw plugin registry, enable `openclaw-weixin`, and launch the verbose QR login command directly.
+- Update the channel page copy so WeChat setup no longer says a separate OpenClaw install is required.
+
 ## 0.1.34 - 2026-05-09
 
 - Repair corrupted `settings.json` files that contain extra trailing JSON so the app can open instead of stopping on the initial-state load.
