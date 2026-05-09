@@ -2,6 +2,12 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.23 - 2026-05-09
+
+- Removed the pet-side hover action toolbar.
+- Kept pet click as the only shortcut for opening the chat panel.
+- Reduced pet-window interactive hit testing to the pet canvas, bubble, and chat panel.
+
 ## 0.1.22 - 2026-05-09
 
 - Narrowed pet-window mouse capture so transparent areas pass clicks through to the desktop.

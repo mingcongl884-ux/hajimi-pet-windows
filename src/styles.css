@@ -53,8 +53,7 @@ button:disabled {
 }
 
 .chat-panel button,
-.settings-panel button,
-.pet-hover-actions button {
+.settings-panel button {
   display: inline-grid;
   place-items: center;
   width: 34px;
@@ -68,8 +67,7 @@ button:disabled {
 }
 
 .chat-panel button:hover,
-.settings-panel button:hover,
-.pet-hover-actions button:hover {
+.settings-panel button:hover {
   background: var(--surface-subtle);
   border-color: var(--line-strong);
 }
@@ -92,36 +90,6 @@ button:disabled {
   height: auto;
   image-rendering: auto;
   filter: none;
-}
-
-.pet-hover-actions {
-  position: absolute;
-  right: 12px;
-  bottom: 112px;
-  z-index: 6;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  opacity: 0;
-  transform: translateX(8px) scale(0.96);
-  pointer-events: none;
-  transition: opacity 140ms ease, transform 140ms ease;
-}
-
-.pet-stage:hover .pet-hover-actions,
-.pet-stage:focus-within .pet-hover-actions {
-  opacity: 1;
-  transform: translateX(0) scale(1);
-  pointer-events: auto;
-}
-
-.pet-hover-actions button {
-  width: 32px;
-  height: 32px;
-}
-
-.pet-hover-actions button:hover {
-  transform: translateY(-1px);
 }
 
 .chat-panel,

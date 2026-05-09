@@ -1,10 +1,8 @@
-import { ArrowUp, BriefcaseBusiness, MessageCircle, Settings, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ChatPanel from "./components/ChatPanel";
 import ManagerPage from "./components/ManagerPage";
 import PetBubble from "./components/PetBubble";
 import PetStage from "./components/PetStage";
-import SettingsPanel from "./components/SettingsPanel";
 import {
   appendConversationMessages,
   createConversation,
@@ -35,7 +33,6 @@ export default function App() {
   const mode = readMode();
   const [state, setState] = useState<PetAppState>();
   const [chatOpen, setChatOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [bubble, setBubble] = useState<BubbleState>();
   const [status, setStatus] = useState<AnimationState>("idle");
   const [error, setError] = useState<string>();
@@ -58,7 +55,7 @@ export default function App() {
       return;
     }
 
-    const interactiveSelector = ".pet-canvas, .pet-hover-actions, .pet-bubble, .chat-panel, .settings-panel";
+    const interactiveSelector = ".pet-canvas, .pet-bubble, .chat-panel";
     const syncMousePassthrough = (event: MouseEvent) => {
       const target = document.elementFromPoint(event.clientX, event.clientY);
       const interactive = Boolean(target?.closest(interactiveSelector));
@@ -322,13 +319,6 @@ export default function App() {
     setChatOpen(true);
   }
 
-  function openAgentChat() {
-    markInteraction();
-    void setConversationMode(true);
-    setBubble(undefined);
-    setChatOpen(true);
-  }
-
   function showBubble(text: string, tone: BubbleState["tone"], slotId?: GreetingSlotId) {
     const compact = text.length > 82 ? `${text.slice(0, 82)}...` : text;
     setBubble({ text: compact, tone });
@@ -340,12 +330,6 @@ export default function App() {
 
   function markInteraction() {
     lastInteractionRef.current = Date.now();
-  }
-
-  function playPetAction(animation: AnimationState, duration = 900) {
-    markInteraction();
-    setStatus(animation);
-    window.setTimeout(() => setStatus("idle"), duration);
   }
 
   if (!state || !activePet || !activeConversation) {
@@ -399,17 +383,6 @@ export default function App() {
         />
       )}
 
-      {settingsOpen && (
-        <SettingsPanel
-          state={state}
-          onClose={() => setSettingsOpen(false)}
-          onImport={async () => setState(await window.petApp.importPet())}
-          onSwitchPet={async (petId) => setState(await window.petApp.switchPet(petId))}
-          onChooseWorkspace={chooseWorkspace}
-          onSave={saveSettings}
-        />
-      )}
-
       {bubble && !chatOpen && (
         <PetBubble
           text={bubble.text}
@@ -427,36 +400,6 @@ export default function App() {
         chatOpen={chatOpen}
         animationOverride={animationOverride}
         onClick={openChat}
-        hoverActions={[
-          {
-            label: "聊天",
-            icon: <MessageCircle size={16} />,
-            onSelect: openChat
-          },
-          {
-            label: "办公",
-            icon: <BriefcaseBusiness size={16} />,
-            onSelect: openAgentChat
-          },
-          {
-            label: "跳一下",
-            icon: <ArrowUp size={16} />,
-            onSelect: () => playPetAction("jumping", 850)
-          },
-          {
-            label: "挥手",
-            icon: <Sparkles size={16} />,
-            onSelect: () => playPetAction("waving", 900)
-          },
-          {
-            label: "设置",
-            icon: <Settings size={16} />,
-            onSelect: () => {
-              markInteraction();
-              setSettingsOpen((open) => !open);
-            }
-          }
-        ]}
       />
     </main>
   );

@@ -14,9 +14,11 @@ describe("pet interaction source", () => {
     expect(appSource).not.toContain('className="floating-actions"');
   });
 
-  it("renders hover-only pet action buttons from the pet stage", () => {
-    expect(stageSource).toContain("pet-hover-actions");
-    expect(stageSource).toContain("hoverActions");
+  it("does not render the old pet-side hover action toolbar", () => {
+    expect(appSource).not.toContain("hoverActions");
+    expect(stageSource).not.toContain("pet-hover-actions");
+    expect(stageSource).not.toContain("hoverActions");
+    expect(stylesSource).not.toContain(".pet-hover-actions");
   });
 
   it("does not add a synthetic shadow around pet sprites", () => {
@@ -38,7 +40,8 @@ describe("pet interaction source", () => {
     expect(preloadSource).toContain("setMousePassthrough");
     expect(globalSource).toContain("setMousePassthrough(passthrough: boolean)");
     expect(appSource).toContain("syncMousePassthrough");
-    expect(appSource).toContain(".pet-canvas, .pet-hover-actions, .pet-bubble, .chat-panel, .settings-panel");
+    expect(appSource).toContain(".pet-canvas, .pet-bubble, .chat-panel");
+    expect(appSource).not.toContain(".pet-hover-actions");
   });
 
   it("places the chat panel close to the pet instead of the far left edge", () => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
 import { getAtlasFrame, type AnimationState } from "../lib/atlas";
 import { MovementController } from "../lib/movement";
 import type { PetPlayCommand } from "../lib/petPlay";
@@ -13,14 +13,7 @@ type Props = {
   windowBounds: PetAppState["windowBounds"];
   chatOpen: boolean;
   animationOverride?: AnimationState;
-  hoverActions?: PetHoverAction[];
   onClick(): void;
-};
-
-type PetHoverAction = {
-  label: string;
-  icon: ReactNode;
-  onSelect(): void;
 };
 
 export default function PetStage({
@@ -30,7 +23,6 @@ export default function PetStage({
   windowBounds,
   chatOpen,
   animationOverride,
-  hoverActions = [],
   onClick
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -197,26 +189,6 @@ export default function PetStage({
       onPointerUp={handlePointerUp}
     >
       <canvas ref={canvasRef} width={192} height={208} className="pet-canvas" />
-      {hoverActions.length > 0 && (
-        <div className="pet-hover-actions" aria-label="宠物动作">
-          {hoverActions.map((action) => (
-            <button
-              key={action.label}
-              title={action.label}
-              aria-label={action.label}
-              onPointerDown={(event) => event.stopPropagation()}
-              onPointerMove={(event) => event.stopPropagation()}
-              onPointerUp={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                action.onSelect();
-              }}
-            >
-              {action.icon}
-            </button>
-          ))}
-        </div>
-      )}
     </section>
   );
 }
