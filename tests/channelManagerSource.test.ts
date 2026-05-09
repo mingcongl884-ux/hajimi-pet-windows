@@ -14,7 +14,8 @@ describe("channel manager page", () => {
     expect(managerSource).toContain("App ID");
     expect(managerSource).toContain("App Secret");
     expect(managerSource).toContain("桥接地址");
-    expect(managerSource).toContain("启动通道");
+    expect(managerSource).toContain("安装/扫码");
+    expect(managerSource).toContain("openClawSetupSteps");
     expect(managerSource).toContain("测试通道");
   });
 

@@ -2,6 +2,12 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.30 - 2026-05-09
+
+- Updated WeChat channel setup to use Tencent's official ClawBot command: `npx -y @tencent-weixin/openclaw-weixin-cli@latest install`.
+- Added visible terminal launch for OpenClaw Feishu/WeChat setup and `openclaw channels status --probe` checks.
+- Added Codex-like multi-project management in the sidebar with project-scoped conversations.
+
 ## 0.1.29 - 2026-05-09
 
 - Added first-phase Feishu and WeChat channel settings with pairing/allowlist routing foundations.

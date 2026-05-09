@@ -101,6 +101,7 @@ Installers are generated in `dist/`.
 | 0.1.27 | `HaJiMi-Setup-0.1.27.exe` | Fixes release workflow tests across GitHub runner time zones. |
 | 0.1.28 | `HaJiMi-Setup-0.1.28.exe` | Adds a Codex-style in-app update flow: check, download, and restart to install from the system page. |
 | 0.1.29 | `HaJiMi-Setup-0.1.29.exe` | Adds first-phase Feishu/WeChat channel settings, routing foundations, and pet action controls. |
+| 0.1.30 | `HaJiMi-Setup-0.1.30.exe` | Uses Tencent's official WeChat ClawBot setup command, opens channel setup terminals, checks OpenClaw channel status, and adds Codex-like multi-project management. |
 
 Use the latest installer unless you need to compare a previous build.
 

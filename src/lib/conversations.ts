@@ -5,23 +5,27 @@ const DEFAULT_CONVERSATION_ID = "default";
 const TITLE_LIMIT = 15;
 
 export function ensureActiveConversation(settings: AppSettings, now = new Date().toISOString()): AppSettings {
-  if (settings.conversations.length > 0) {
+  const projectId = settings.activeProjectId || "";
+  const projectConversations = settings.conversations.filter((conversation) => (conversation.projectId || "") === projectId);
+  if (projectConversations.length > 0) {
     const activeConversation = settings.conversations.find(
-      (conversation) => conversation.id === settings.activeConversationId
+      (conversation) => conversation.id === settings.activeConversationId && (conversation.projectId || "") === projectId
     );
     return activeConversation
       ? settings
-      : { ...settings, activeConversationId: settings.conversations[0].id };
+      : { ...settings, activeConversationId: projectConversations[0].id };
   }
 
   return {
     ...settings,
-    activeConversationId: DEFAULT_CONVERSATION_ID,
+    activeConversationId: defaultConversationId(projectId),
     conversations: [
+      ...settings.conversations,
       {
-        id: DEFAULT_CONVERSATION_ID,
+        id: defaultConversationId(projectId),
         title: "新会话",
         mode: "chat",
+        projectId: projectId || undefined,
         messages: [],
         updatedAt: now
       }
@@ -36,10 +40,15 @@ export function createConversation(
   id = makeConversationId()
 ): AppSettings {
   const prepared = ensureActiveConversation(settings, now);
+  const projectId = prepared.activeProjectId || "";
+  const projectConversationCount = prepared.conversations.filter(
+    (conversation) => (conversation.projectId || "") === projectId
+  ).length;
   const conversation: PetConversation = {
     id,
-    title: `${mode === "agent" ? "办公会话" : "聊天会话"} ${prepared.conversations.length + 1}`,
+    title: `${mode === "agent" ? "办公会话" : "聊天会话"} ${projectConversationCount + 1}`,
     mode,
+    projectId: projectId || undefined,
     messages: [],
     updatedAt: now
   };
@@ -84,15 +93,18 @@ export function deleteConversation(
   conversationId: string,
   now = new Date().toISOString()
 ): AppSettings {
+  const deleted = settings.conversations.find((conversation) => conversation.id === conversationId);
+  const projectId = deleted?.projectId || settings.activeProjectId || "";
   const remaining = settings.conversations.filter((conversation) => conversation.id !== conversationId);
-  if (remaining.length === 0) {
-    return ensureActiveConversation({ ...settings, activeConversationId: "", conversations: [] }, now);
+  const remainingInProject = remaining.filter((conversation) => (conversation.projectId || "") === projectId);
+  if (remainingInProject.length === 0) {
+    return ensureActiveConversation({ ...settings, activeConversationId: "", conversations: remaining }, now);
   }
 
   return {
     ...settings,
     activeConversationId:
-      settings.activeConversationId === conversationId ? remaining[0].id : settings.activeConversationId,
+      settings.activeConversationId === conversationId ? remainingInProject[0].id : settings.activeConversationId,
     conversations: remaining
   };
 }
@@ -145,4 +157,8 @@ function titleFromMessages(messages: ChatMessage[]): string {
 
 function makeConversationId(): string {
   return `conv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function defaultConversationId(projectId: string): string {
+  return projectId ? `${DEFAULT_CONVERSATION_ID}-${projectId}` : DEFAULT_CONVERSATION_ID;
 }

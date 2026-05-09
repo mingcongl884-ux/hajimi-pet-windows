@@ -4,6 +4,7 @@ import type { ChatMessage } from "./chatClient.js";
 import type { ChannelSettings } from "../src/lib/channels.js";
 import { cloneChannelSettings, defaultChannelSettings } from "../src/lib/channels.js";
 import type { MovementIntensity } from "../src/lib/movement.js";
+import { ensureProjects } from "../src/lib/projects.js";
 
 export type ApiSettings = {
   baseUrl: string;
@@ -27,6 +28,14 @@ export type AgentSettings = {
   workspaceDir: string;
   allowCommands: boolean;
   permissionMode: AgentPermissionMode;
+};
+
+export type AgentProject = {
+  id: string;
+  name: string;
+  path: string;
+  updatedAt: string;
+  pinned?: boolean;
 };
 
 export type HeartbeatSettings = {
@@ -61,6 +70,7 @@ export type PetConversation = {
   id: string;
   title: string;
   mode: PetConversationMode;
+  projectId?: string;
   messages: ChatMessage[];
   updatedAt: string;
 };
@@ -83,6 +93,8 @@ export type AppSettings = {
   activeChatModelId: string;
   activeAgentModelId: string;
   agent: AgentSettings;
+  activeProjectId: string;
+  projects: AgentProject[];
   heartbeat: HeartbeatSettings;
   network: NetworkSettings;
   channels: ChannelSettings[];
@@ -148,6 +160,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     allowCommands: false,
     permissionMode: "default"
   },
+  activeProjectId: "",
+  projects: [],
   heartbeat: {
     enabled: true,
     modelGreetingEnabled: true,
@@ -191,18 +205,20 @@ export class SettingsStore {
       return this.hydrate(stored);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return {
+        return ensureProjects({
           ...DEFAULT_SETTINGS,
           api: { ...DEFAULT_SETTINGS.api },
           models: DEFAULT_SETTINGS.models.map((model) => ({ ...model })),
           activePetIds: [...DEFAULT_SETTINGS.activePetIds],
           petDisplayNames: { ...DEFAULT_SETTINGS.petDisplayNames },
           agent: { ...DEFAULT_SETTINGS.agent },
+          activeProjectId: DEFAULT_SETTINGS.activeProjectId,
+          projects: DEFAULT_SETTINGS.projects.map((project) => ({ ...project })),
           heartbeat: { ...DEFAULT_SETTINGS.heartbeat, sentGreetingKeys: [] },
           network: { ...DEFAULT_SETTINGS.network, readNoticeIds: [] },
           channels: cloneChannelSettings(DEFAULT_SETTINGS.channels),
           conversations: DEFAULT_SETTINGS.conversations.map((conversation) => ({ ...conversation }))
-        };
+        });
       }
       throw error;
     }
@@ -220,7 +236,7 @@ export class SettingsStore {
       apiKey = this.safeStorage.decryptString(Buffer.from(stored.api.apiKeyEncrypted, "base64"));
     }
 
-    return {
+    return ensureProjects({
       ...DEFAULT_SETTINGS,
       ...stored,
       activePetIds: stored.activePetIds?.length ? stored.activePetIds.slice(0, 2) : [stored.activePetId || "xiaomi"],
@@ -271,7 +287,7 @@ export class SettingsStore {
         ? stored.conversations
         : DEFAULT_SETTINGS.conversations.map((conversation) => ({ ...conversation })),
       activeConversationId: stored.activeConversationId || DEFAULT_SETTINGS.activeConversationId
-    };
+    });
   }
 
   private dehydrate(settings: AppSettings): StoredSettings {

@@ -24,7 +24,8 @@ import type { AgentPermissionMode, AppSettings, ModelProfile, ModelProvider, Pet
 import type { RemoteNotice } from "../../electron/settingsStore";
 import type { PetAppState } from "../global";
 import { toggleActivePetId } from "../lib/activePets";
-import type { ChannelProvider, ChannelSettings } from "../lib/channels";
+import { openClawSetupSteps, type ChannelProvider, type ChannelSettings } from "../lib/channels";
+import { ensureProjects } from "../lib/projects";
 import { fileToMessageContent } from "../lib/fileMessage";
 import { ensureModelProfiles, upsertModelProfile } from "../lib/modelProfiles";
 
@@ -33,6 +34,8 @@ type Props = {
   onImport(): Promise<void>;
   onDeletePet(petId: string): Promise<void>;
   onChooseWorkspace(): Promise<void>;
+  onSwitchProject(projectId: string): Promise<void>;
+  onDeleteProject(projectId: string): Promise<void>;
   onTestModel(model: ModelProfile): Promise<string>;
   onCheckUpdates(): Promise<UpdateCheckResult>;
   onDownloadUpdate(): Promise<UpdateCheckResult>;
@@ -109,6 +112,8 @@ export default function ManagerPage({
   onImport,
   onDeletePet,
   onChooseWorkspace,
+  onSwitchProject,
+  onDeleteProject,
   onTestModel,
   onCheckUpdates,
   onDownloadUpdate,
@@ -126,7 +131,7 @@ export default function ManagerPage({
   onSendMessage
 }: Props) {
   const [section, setSection] = useState<ManagerSection>("office");
-  const [settings, setSettings] = useState(ensureModelProfiles(state.settings));
+  const [settings, setSettings] = useState(ensureProjects(ensureModelProfiles(state.settings)));
   const [saving, setSaving] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string>();
   const [testMessage, setTestMessage] = useState<string>();
@@ -143,11 +148,11 @@ export default function ManagerPage({
   const [renamingPetName, setRenamingPetName] = useState("");
   const officeFileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => setSettings(ensureModelProfiles(state.settings)), [state.settings]);
+  useEffect(() => setSettings(ensureProjects(ensureModelProfiles(state.settings))), [state.settings]);
 
   async function save(next = settings) {
     setSaving(true);
-    await onSave(ensureModelProfiles(next));
+    await onSave(ensureProjects(ensureModelProfiles(next)));
     setSaving(false);
   }
 
@@ -295,7 +300,7 @@ export default function ManagerPage({
     setSettings({
       ...settings,
       channels: settings.channels.map((channel) => channel.provider === provider
-        ? { ...channel, feishu: { appId: "", appSecret: "", ...channel.feishu, ...patch } }
+        ? { ...channel, feishu: { appId: "", appSecret: "", connectionMode: "websocket", ...channel.feishu, ...patch } }
         : channel)
     });
   }
@@ -308,7 +313,7 @@ export default function ManagerPage({
           ...channel,
           wechat: {
             bridgeUrl: "http://127.0.0.1:18011",
-            pluginCommand: "openclaw channels login --channel openclaw-weixin",
+            pluginCommand: "npx -y @tencent-weixin/openclaw-weixin-cli@latest install",
             ...channel.wechat,
             ...patch
           }
@@ -486,7 +491,11 @@ export default function ManagerPage({
   const activeConversation =
     settings.conversations.find((item) => item.id === settings.activeConversationId) ?? settings.conversations[0];
   const messages = activeConversation?.messages ?? [];
-  const projectName = settings.agent.workspaceDir.split(/[\\/]/).filter(Boolean).at(-1) || "选择项目";
+  const activeProject = settings.projects.find((project) => project.id === settings.activeProjectId);
+  const projectName = activeProject?.name || settings.agent.workspaceDir.split(/[\\/]/).filter(Boolean).at(-1) || "选择项目";
+  const visibleConversations = settings.conversations.filter(
+    (conversation) => (conversation.projectId || "") === (settings.activeProjectId || "")
+  );
   const activePermission = permissionOptions.find((option) => option.id === settings.agent.permissionMode)
     ?? permissionOptions[0];
   const activeAgentModel = settings.models.find((model) => model.id === settings.activeAgentModelId) ?? settings.models[0];
@@ -496,12 +505,37 @@ export default function ManagerPage({
     <main className="manager-app-shell">
       <aside className="codex-sidebar">
         <section className="codex-sidebar-section">
-          <p className="codex-sidebar-label">项目</p>
-          <button className="codex-project-row active" onClick={() => void chooseWorkspace()}>
-            <FolderOpen size={15} />
-            <span>{projectName}</span>
-          </button>
-          <p className="codex-project-path">{settings.agent.workspaceDir || "暂无项目"}</p>
+          <div className="codex-sidebar-heading">
+            <p className="codex-sidebar-label">项目</p>
+            <button title="选择新项目" onClick={() => void chooseWorkspace()}>
+              <Plus size={14} />
+            </button>
+          </div>
+          <div className="codex-project-list">
+            {settings.projects.length === 0 && (
+              <button className="codex-project-row active" onClick={() => void chooseWorkspace()}>
+                <FolderOpen size={15} />
+                <span>{projectName}</span>
+              </button>
+            )}
+            {settings.projects.map((project) => (
+              <div className={project.id === settings.activeProjectId ? "codex-project-item active" : "codex-project-item"} key={project.id}>
+                <button className="codex-project-row" onClick={() => void onSwitchProject(project.id)}>
+                  <FolderOpen size={15} />
+                  <span>{project.name}</span>
+                </button>
+                <button
+                  className="codex-project-delete"
+                  disabled={settings.projects.length <= 1}
+                  title="移除项目"
+                  onClick={() => void onDeleteProject(project.id)}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="codex-project-path">{activeProject?.path || settings.agent.workspaceDir || "暂无项目"}</p>
         </section>
 
         <section className="codex-sidebar-section grow">
@@ -512,7 +546,7 @@ export default function ManagerPage({
             </button>
           </div>
           <div className="codex-conversation-rail">
-            {settings.conversations.map((conversation) => (
+            {visibleConversations.map((conversation) => (
               <div
                 className={conversation.id === settings.activeConversationId ? "codex-conversation-row active" : "codex-conversation-row"}
                 key={conversation.id}
@@ -950,9 +984,21 @@ export default function ManagerPage({
                         onBlur={() => void save()}
                       />
                     </label>
-                    <p className="manager-note">通过微信官方插件或本地 sidecar 桥接，哈基Mi只处理标准化消息和权限路由。</p>
+                    <p className="manager-note">使用微信官方 ClawBot 插件接入 OpenClaw。点击启动会打开终端运行安装命令并展示二维码。</p>
                   </>
                 )}
+                <div className="channel-steps">
+                  {openClawSetupSteps(channel).map((step, index) => (
+                    <div className="channel-step" key={`${channel.provider}-${index}`}>
+                      <span>{index + 1}</span>
+                      <div>
+                        <strong>{step.label}</strong>
+                        {step.command && <code>{step.command}</code>}
+                        {step.note && <small>{step.note}</small>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
                 <div className="channel-status-row">
                   <span>状态</span>
                   <strong>{channel.status}</strong>
@@ -963,7 +1009,7 @@ export default function ManagerPage({
                     disabled={channelBusyProvider === channel.provider}
                     onClick={() => void runChannelAction(channel.provider, onStartChannel)}
                   >
-                    启动通道
+                    {channel.provider === "wechat" ? "安装/扫码" : "启动通道"}
                   </button>
                   <button
                     className="secondary-command"

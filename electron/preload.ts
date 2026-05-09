@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld("petApp", {
   checkNotices: () => ipcRenderer.invoke("pet:check-notices"),
   markNoticeRead: (noticeId: string) => ipcRenderer.invoke("pet:mark-notice-read", noticeId),
   chooseWorkspace: () => ipcRenderer.invoke("pet:choose-workspace"),
+  switchProject: (projectId: string) => ipcRenderer.invoke("pet:switch-project", projectId),
+  deleteProject: (projectId: string) => ipcRenderer.invoke("pet:delete-project", projectId),
   setPetWindowBounds: (bounds: PetWindowBounds) => ipcRenderer.invoke("pet:set-window-bounds", petSlot, bounds),
   setMousePassthrough: (passthrough: boolean) => ipcRenderer.invoke("pet:set-mouse-passthrough", petSlot, passthrough),
   onStateChanged: (callback: (state: PetAppState) => void) => {

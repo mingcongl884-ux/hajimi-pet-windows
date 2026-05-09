@@ -31,6 +31,7 @@ import { SettingsStore, type AppSettings, type ModelProfile } from "./settingsSt
 import { getActiveModelSettings } from "../src/lib/modelProfiles.js";
 import { planPetPlayStep } from "../src/lib/petPlay.js";
 import type { InstalledPet, PetManifest } from "../src/lib/petTypes.js";
+import { removeProject, switchProject, upsertProject } from "../src/lib/projects.js";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
 const PET_WINDOW_SIZE = { width: 620, height: 520 };
@@ -251,7 +252,10 @@ function registerIpc() {
     if (!channel) {
       throw new Error("通道不存在。");
     }
-    return testChannelAdapter(channel);
+    const result = await testChannelAdapter(channel);
+    await settingsStore.saveSettings(updateChannelStatus(settings, provider, result.status));
+    await broadcastState();
+    return result;
   });
   ipcMain.handle("pet:send-chat", async (_event, messages: ChatMessage[]) => {
     const settings = await settingsStore.loadSettings();
@@ -310,6 +314,16 @@ function registerIpc() {
     return broadcastState();
   });
   ipcMain.handle("pet:choose-workspace", () => chooseWorkspaceFromDialog());
+  ipcMain.handle("pet:switch-project", async (_event, projectId: string) => {
+    const settings = await settingsStore.loadSettings();
+    await settingsStore.saveSettings(switchProject(settings, projectId));
+    return broadcastState();
+  });
+  ipcMain.handle("pet:delete-project", async (_event, projectId: string) => {
+    const settings = await settingsStore.loadSettings();
+    await settingsStore.saveSettings(removeProject(settings, projectId));
+    return broadcastState();
+  });
   ipcMain.handle("pet:set-window-bounds", async (_event, slot: number, bounds: { x: number; y: number }) => {
     setPetWindowPosition(slot, bounds.x, bounds.y);
   });
@@ -383,13 +397,7 @@ async function chooseWorkspaceFromDialog() {
   }
 
   const settings = await settingsStore.loadSettings();
-  await settingsStore.saveSettings({
-    ...settings,
-    agent: {
-      ...settings.agent,
-      workspaceDir: result.filePaths[0]
-    }
-  });
+  await settingsStore.saveSettings(upsertProject(settings, result.filePaths[0]));
   return broadcastState();
 }
 

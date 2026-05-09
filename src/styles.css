@@ -1209,6 +1209,61 @@ button:disabled {
   font-size: 13px;
 }
 
+.channel-steps {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.channel-step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.channel-step > span {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.channel-step div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.channel-step strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.channel-step code {
+  overflow: hidden;
+  padding: 2px 0;
+  color: var(--ink-soft);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-step small {
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .manager-app-shell {
   display: grid;
   grid-template-columns: 294px minmax(0, 1fr);
@@ -1290,6 +1345,55 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.codex-project-list {
+  display: grid;
+  gap: 3px;
+}
+
+.codex-project-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  align-items: center;
+  border-radius: 7px;
+}
+
+.codex-project-item:hover,
+.codex-project-item.active {
+  background: var(--surface);
+}
+
+.codex-project-item .codex-project-row:hover,
+.codex-project-item.active .codex-project-row {
+  background: transparent;
+}
+
+.codex-project-delete {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-muted);
+  opacity: 0;
+}
+
+.codex-project-item:hover .codex-project-delete,
+.codex-project-item.active .codex-project-delete {
+  opacity: 1;
+}
+
+.codex-project-delete:hover {
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+
+.codex-project-delete:disabled {
+  opacity: 0.28;
 }
 
 .codex-project-row:hover,

@@ -50,6 +50,8 @@ declare global {
       checkNotices(): Promise<{ notices: RemoteNotice[]; checkedAt: string; message?: string }>;
       markNoticeRead(noticeId: string): Promise<PetAppState>;
       chooseWorkspace(): Promise<PetAppState>;
+      switchProject(projectId: string): Promise<PetAppState>;
+      deleteProject(projectId: string): Promise<PetAppState>;
       setPetWindowBounds(bounds: PetWindowBounds): Promise<void>;
       setMousePassthrough(passthrough: boolean): Promise<void>;
       onStateChanged(callback: (state: PetAppState) => void): () => void;

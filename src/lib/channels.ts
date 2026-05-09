@@ -12,6 +12,12 @@ export type ChannelPeer = {
   pairedAt?: string;
 };
 
+export type OpenClawSetupStep = {
+  label: string;
+  command?: string;
+  note?: string;
+};
+
 export type ChannelSettings = {
   enabled: boolean;
   provider: ChannelProvider;
@@ -20,9 +26,11 @@ export type ChannelSettings = {
   accessMode: ChannelAccessMode;
   allowedPeers: ChannelPeer[];
   routeMode: ChannelRouteMode;
+  bridgePort: number;
   feishu?: {
     appId: string;
     appSecret: string;
+    connectionMode: "websocket" | "webhook";
   };
   wechat?: {
     bridgeUrl: string;
@@ -40,7 +48,8 @@ export function defaultChannelSettings(): ChannelSettings[] {
       accessMode: "pairing",
       allowedPeers: [],
       routeMode: "chat",
-      feishu: { appId: "", appSecret: "" }
+      bridgePort: 18011,
+      feishu: { appId: "", appSecret: "", connectionMode: "websocket" }
     },
     {
       enabled: false,
@@ -50,9 +59,10 @@ export function defaultChannelSettings(): ChannelSettings[] {
       accessMode: "pairing",
       allowedPeers: [],
       routeMode: "chat",
+      bridgePort: 18011,
       wechat: {
         bridgeUrl: "http://127.0.0.1:18011",
-        pluginCommand: "openclaw channels login --channel openclaw-weixin"
+        pluginCommand: "npx -y @tencent-weixin/openclaw-weixin-cli@latest install"
       }
     }
   ];
@@ -81,4 +91,27 @@ export function findAllowedPeer(
   return channels
     .find((item) => item.provider === channel)
     ?.allowedPeers.find((peer) => peer.channel === channel && peer.kind === kind && peer.id === id);
+}
+
+export function openClawSetupSteps(channel: ChannelSettings): OpenClawSetupStep[] {
+  if (channel.provider === "wechat") {
+    return [
+      { label: "安装微信插件", command: "npx -y @tencent-weixin/openclaw-weixin-cli@latest install" },
+      { label: "启用插件", command: "openclaw config set plugins.entries.openclaw-weixin.enabled true" },
+      { label: "扫码登录", command: "openclaw channels login --channel openclaw-weixin" },
+      { label: "重启网关", command: "openclaw gateway restart" },
+      { label: "检查通道", command: "openclaw channels status --probe" }
+    ];
+  }
+
+  return [
+    { label: "添加飞书通道", command: "openclaw channels add" },
+    { label: "确认网关运行", command: "openclaw gateway status" },
+    {
+      label: "配置飞书事件",
+      note: "在飞书开放平台事件订阅里选择长连接 WebSocket，并添加 im.message.receive_v1。"
+    },
+    { label: "重启网关", command: "openclaw gateway restart" },
+    { label: "检查通道", command: "openclaw channels status --probe" }
+  ];
 }

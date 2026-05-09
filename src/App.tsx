@@ -23,6 +23,7 @@ import type { AppSettings, PetConversationMode } from "../electron/settingsStore
 import type { AnimationState } from "./lib/atlas";
 import type { PetAppState } from "./global";
 import type { PetAction } from "./lib/petActions";
+import { ensureProjects } from "./lib/projects";
 
 type AppMode = "pet" | "manager";
 type BubbleState = {
@@ -272,6 +273,16 @@ export default function App() {
     setState(withActiveConversation(await window.petApp.chooseWorkspace()));
   }
 
+  async function switchProject(projectId: string) {
+    markInteraction();
+    setState(withActiveConversation(await window.petApp.switchProject(projectId)));
+  }
+
+  async function deleteProject(projectId: string) {
+    markInteraction();
+    setState(withActiveConversation(await window.petApp.deleteProject(projectId)));
+  }
+
   async function deletePet(petId: string) {
     markInteraction();
     setState(withActiveConversation(await window.petApp.deletePet(petId)));
@@ -392,6 +403,8 @@ export default function App() {
         onImport={async () => setState(await window.petApp.importPet())}
         onDeletePet={deletePet}
         onChooseWorkspace={chooseWorkspace}
+        onSwitchProject={switchProject}
+        onDeleteProject={deleteProject}
         onTestModel={(model) => window.petApp.testModel(model)}
         onCheckUpdates={() => window.petApp.checkUpdates()}
         onDownloadUpdate={() => window.petApp.downloadUpdate()}
@@ -456,7 +469,7 @@ export default function App() {
 }
 
 function withActiveConversation(state: PetAppState): PetAppState {
-  return { ...state, settings: ensureActiveConversation(state.settings) };
+  return { ...state, settings: ensureActiveConversation(ensureProjects(state.settings)) };
 }
 
 function readMode(): AppMode {
