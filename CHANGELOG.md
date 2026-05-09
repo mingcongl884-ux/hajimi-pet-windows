@@ -2,6 +2,10 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.24 - 2026-05-09
+
+- Lowered the pet size slider minimum to `0.5` for a Codex-like small pet size.
+
 ## 0.1.23 - 2026-05-09
 
 - Removed the pet-side hover action toolbar.

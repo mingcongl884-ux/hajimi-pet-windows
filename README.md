@@ -91,6 +91,7 @@ Installers are generated in `dist/`.
 | 0.1.21 | `HaJiMi-Setup-0.1.21.exe` | Adds optional multi-pet play so two active pets can approach, chase, and jump together. |
 | 0.1.22 | `HaJiMi-Setup-0.1.22.exe` | Narrows pet-window mouse capture to visible controls and moves the pet chat panel closer. |
 | 0.1.23 | `HaJiMi-Setup-0.1.23.exe` | Removes the pet-side hover action toolbar and keeps pet click as the chat shortcut. |
+| 0.1.24 | `HaJiMi-Setup-0.1.24.exe` | Lowers the pet size slider minimum to a Codex-like small size. |
 
 Use the latest installer unless you need to compare a previous build.
 

@@ -680,7 +680,7 @@ export default function ManagerPage({
                 宠物大小
                 <input
                   type="range"
-                  min="0.7"
+                  min="0.5"
                   max="1.4"
                   step="0.05"
                   value={settings.petScale}

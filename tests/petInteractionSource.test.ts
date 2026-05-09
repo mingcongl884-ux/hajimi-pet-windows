@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const appSource = readFileSync(join(process.cwd(), "src", "App.tsx"), "utf8");
 const stageSource = readFileSync(join(process.cwd(), "src", "components", "PetStage.tsx"), "utf8");
+const managerSource = readFileSync(join(process.cwd(), "src", "components", "ManagerPage.tsx"), "utf8");
 const stylesSource = readFileSync(join(process.cwd(), "src", "styles.css"), "utf8");
 const mainSource = readFileSync(join(process.cwd(), "electron", "main.ts"), "utf8");
 const preloadSource = readFileSync(join(process.cwd(), "electron", "preload.ts"), "utf8");
@@ -47,5 +48,10 @@ describe("pet interaction source", () => {
   it("places the chat panel close to the pet instead of the far left edge", () => {
     expect(stylesSource).toMatch(/\.chat-panel\s*\{[\s\S]*left: 108px/);
     expect(stylesSource).toMatch(/\.chat-panel\s*\{[\s\S]*width: 300px/);
+  });
+
+  it("allows the pet size slider to shrink to a Codex-like small size", () => {
+    expect(managerSource).toContain('min="0.5"');
+    expect(managerSource).toContain('step="0.05"');
   });
 });
