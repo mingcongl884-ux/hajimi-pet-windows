@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -136,5 +136,38 @@ describe("SettingsStore", () => {
 
     expect(loaded.network.updateFeedUrl).toBe(GITHUB_UPDATE_FEED_URL);
     expect(loaded.network.noticeFeedUrl).toBe(GITHUB_NOTICE_FEED_URL);
+  });
+
+  it("repairs a settings file with trailing JSON garbage", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pet-settings-"));
+    const settingsPath = join(dir, "settings.json");
+    await writeFile(settingsPath, `${JSON.stringify({
+      ...DEFAULT_SETTINGS,
+      petScale: 0.42,
+      api: {
+        ...DEFAULT_SETTINGS.api,
+        apiKey: "keep-me"
+      }
+    }, null, 2)}\n}\n`, "utf8");
+    const store = new SettingsStore(dir);
+
+    const loaded = await store.loadSettings();
+
+    expect(loaded.petScale).toBe(0.42);
+    expect(loaded.api.apiKey).toBe("keep-me");
+    expect(JSON.parse(await readFile(settingsPath, "utf8")).petScale).toBe(0.42);
+    expect((await readdir(dir)).some((name) => name.includes(".corrupt-"))).toBe(true);
+  });
+
+  it("falls back to defaults when a corrupted settings file cannot be repaired", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pet-settings-"));
+    await writeFile(join(dir, "settings.json"), "{ broken", "utf8");
+    const store = new SettingsStore(dir);
+
+    const loaded = await store.loadSettings();
+
+    expect(loaded.activePetId).toBe("xiaomi");
+    expect(JSON.parse(await readFile(join(dir, "settings.json"), "utf8")).activePetId).toBe("xiaomi");
+    expect((await readdir(dir)).some((name) => name.includes(".corrupt-"))).toBe(true);
   });
 });

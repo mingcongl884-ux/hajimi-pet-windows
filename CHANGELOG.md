@@ -2,6 +2,11 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.34 - 2026-05-09
+
+- Repair corrupted `settings.json` files that contain extra trailing JSON so the app can open instead of stopping on the initial-state load.
+- Save settings through a temporary file before replacing the main file to reduce future config corruption.
+
 ## 0.1.33 - 2026-05-09
 
 - Bundled OpenClaw and a Node 22 runtime, then generate a local `openclaw.cmd` shim so WeChat setup can proceed without a global OpenClaw install.

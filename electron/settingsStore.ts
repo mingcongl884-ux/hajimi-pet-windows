@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, rename, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ChatMessage } from "./chatClient.js";
 import type { ChannelSettings } from "../src/lib/channels.js";
@@ -199,26 +199,22 @@ export class SettingsStore {
   }
 
   async loadSettings(): Promise<AppSettings> {
+    let raw: string;
     try {
-      const raw = await readFile(this.filePath, "utf8");
-      const stored = JSON.parse(raw) as StoredSettings;
-      return this.hydrate(stored);
+      raw = await readFile(this.filePath, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return ensureProjects({
-          ...DEFAULT_SETTINGS,
-          api: { ...DEFAULT_SETTINGS.api },
-          models: DEFAULT_SETTINGS.models.map((model) => ({ ...model })),
-          activePetIds: [...DEFAULT_SETTINGS.activePetIds],
-          petDisplayNames: { ...DEFAULT_SETTINGS.petDisplayNames },
-          agent: { ...DEFAULT_SETTINGS.agent },
-          activeProjectId: DEFAULT_SETTINGS.activeProjectId,
-          projects: DEFAULT_SETTINGS.projects.map((project) => ({ ...project })),
-          heartbeat: { ...DEFAULT_SETTINGS.heartbeat, sentGreetingKeys: [] },
-          network: { ...DEFAULT_SETTINGS.network, readNoticeIds: [] },
-          channels: cloneChannelSettings(DEFAULT_SETTINGS.channels),
-          conversations: DEFAULT_SETTINGS.conversations.map((conversation) => ({ ...conversation }))
-        });
+        return this.defaultSettings();
+      }
+      throw error;
+    }
+
+    try {
+      return this.hydrate(JSON.parse(raw) as StoredSettings);
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        const stored = await this.recoverCorruptSettings(raw);
+        return this.hydrate(stored);
       }
       throw error;
     }
@@ -227,7 +223,45 @@ export class SettingsStore {
   async saveSettings(settings: AppSettings): Promise<void> {
     await mkdir(this.userDataDir, { recursive: true });
     const stored = this.dehydrate(settings);
-    await writeFile(this.filePath, `${JSON.stringify(stored, null, 2)}\n`, "utf8");
+    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
+    await writeFile(tempPath, `${JSON.stringify(stored, null, 2)}\n`, "utf8");
+    await rename(tempPath, this.filePath);
+  }
+
+  private async recoverCorruptSettings(raw: string): Promise<StoredSettings> {
+    await this.backupCorruptSettings(raw);
+    const repaired = readFirstJsonDocument(raw);
+    if (repaired) {
+      await writeFile(this.filePath, `${repaired}\n`, "utf8");
+      return JSON.parse(repaired) as StoredSettings;
+    }
+
+    const defaults = this.defaultSettings();
+    await this.saveSettings(defaults);
+    return defaults as StoredSettings;
+  }
+
+  private async backupCorruptSettings(raw: string): Promise<void> {
+    await mkdir(this.userDataDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    await writeFile(`${this.filePath}.corrupt-${stamp}.bak`, raw, "utf8");
+  }
+
+  private defaultSettings(): AppSettings {
+    return ensureProjects({
+      ...DEFAULT_SETTINGS,
+      api: { ...DEFAULT_SETTINGS.api },
+      models: DEFAULT_SETTINGS.models.map((model) => ({ ...model })),
+      activePetIds: [...DEFAULT_SETTINGS.activePetIds],
+      petDisplayNames: { ...DEFAULT_SETTINGS.petDisplayNames },
+      agent: { ...DEFAULT_SETTINGS.agent },
+      activeProjectId: DEFAULT_SETTINGS.activeProjectId,
+      projects: DEFAULT_SETTINGS.projects.map((project) => ({ ...project })),
+      heartbeat: { ...DEFAULT_SETTINGS.heartbeat, sentGreetingKeys: [] },
+      network: { ...DEFAULT_SETTINGS.network, readNoticeIds: [] },
+      channels: cloneChannelSettings(DEFAULT_SETTINGS.channels),
+      conversations: DEFAULT_SETTINGS.conversations.map((conversation) => ({ ...conversation }))
+    });
   }
 
   private hydrate(stored: StoredSettings): AppSettings {
@@ -350,4 +384,51 @@ export class SettingsStore {
     }
     return agent?.allowCommands ? "auto-review" : "default";
   }
+}
+
+function readFirstJsonDocument(raw: string): string | undefined {
+  let depth = 0;
+  let started = false;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{" || char === "[") {
+      depth += 1;
+      started = true;
+      continue;
+    }
+
+    if (char === "}" || char === "]") {
+      depth -= 1;
+      if (started && depth === 0) {
+        const candidate = raw.slice(0, index + 1).trim();
+        try {
+          JSON.parse(candidate);
+          return candidate;
+        } catch {
+          return undefined;
+        }
+      }
+    }
+  }
+
+  return undefined;
 }

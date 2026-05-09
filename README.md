@@ -105,6 +105,7 @@ Installers are generated in `dist/`.
 | 0.1.31 | `HaJiMi-Setup-0.1.31.exe` | Fixes update checks for older empty feed settings and saves current network fields before checking. |
 | 0.1.32 | `HaJiMi-Setup-0.1.32.exe` | Bundles the WeChat ClawBot installer, fixes setup terminal launch, adds collapsible project conversations, and lowers/shadow-cleans pet bubbles. |
 | 0.1.33 | `HaJiMi-Setup-0.1.33.exe` | Bundles OpenClaw plus Node 22, creates a local OpenClaw shim for WeChat setup, isolates OpenClaw state under HaJiMi data, and compacts sidebar tabs. |
+| 0.1.34 | `HaJiMi-Setup-0.1.34.exe` | Repairs corrupted settings files on startup and saves settings atomically to prevent the initial-state JSON crash. |
 
 Use the latest installer unless you need to compare a previous build.
 
