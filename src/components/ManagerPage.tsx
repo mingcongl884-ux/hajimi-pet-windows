@@ -18,11 +18,13 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import type { ChannelAdapterResult } from "../../electron/channelAdapters";
 import type { UpdateCheckResult } from "../../electron/networkClient";
 import type { AgentPermissionMode, AppSettings, ModelProfile, ModelProvider, PetConversationMode } from "../../electron/settingsStore";
 import type { RemoteNotice } from "../../electron/settingsStore";
 import type { PetAppState } from "../global";
 import { toggleActivePetId } from "../lib/activePets";
+import type { ChannelProvider, ChannelSettings } from "../lib/channels";
 import { fileToMessageContent } from "../lib/fileMessage";
 import { ensureModelProfiles, upsertModelProfile } from "../lib/modelProfiles";
 
@@ -36,6 +38,9 @@ type Props = {
   onDownloadUpdate(): Promise<UpdateCheckResult>;
   onInstallUpdate(): Promise<UpdateCheckResult>;
   onCheckNotices(): Promise<{ notices: RemoteNotice[]; checkedAt: string; message?: string }>;
+  onStartChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
+  onStopChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
+  onTestChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
   onSave(settings: AppSettings): Promise<void>;
   chatError?: string;
   onCreateConversation(mode: PetConversationMode): Promise<void>;
@@ -45,12 +50,13 @@ type Props = {
   onSendMessage(content: string): Promise<void>;
 };
 
-type ManagerSection = "office" | "pets" | "models" | "system";
+type ManagerSection = "office" | "pets" | "models" | "channels" | "system";
 
 const navItems: Array<{ id: ManagerSection; label: string; icon: typeof Bot }> = [
   { id: "office", label: "办公区", icon: BriefcaseBusiness },
   { id: "pets", label: "宠物", icon: Bot },
   { id: "models", label: "模型", icon: Settings2 },
+  { id: "channels", label: "通道", icon: MessageCircle },
   { id: "system", label: "系统", icon: SlidersHorizontal }
 ];
 
@@ -108,6 +114,9 @@ export default function ManagerPage({
   onDownloadUpdate,
   onInstallUpdate,
   onCheckNotices,
+  onStartChannel,
+  onStopChannel,
+  onTestChannel,
   onSave,
   chatError,
   onCreateConversation,
@@ -123,6 +132,8 @@ export default function ManagerPage({
   const [testMessage, setTestMessage] = useState<string>();
   const [officeDraft, setOfficeDraft] = useState("");
   const [networkMessage, setNetworkMessage] = useState<string>();
+  const [channelMessage, setChannelMessage] = useState<string>();
+  const [channelBusyProvider, setChannelBusyProvider] = useState<ChannelProvider>();
   const [checkingNetwork, setCheckingNetwork] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateCheckResult["status"]>();
   const [availableUpdateVersion, setAvailableUpdateVersion] = useState<string>();
@@ -248,6 +259,62 @@ export default function ManagerPage({
     } finally {
       setCheckingNetwork(false);
     }
+  }
+
+  async function runChannelAction(
+    provider: ChannelProvider,
+    action: (provider: ChannelProvider) => Promise<ChannelAdapterResult>
+  ) {
+    setChannelBusyProvider(provider);
+    setChannelMessage(undefined);
+    try {
+      const result = await action(provider);
+      setChannelMessage(result.message);
+    } catch (error) {
+      setChannelMessage(error instanceof Error ? error.message : "通道操作失败。");
+    } finally {
+      setChannelBusyProvider(undefined);
+    }
+  }
+
+  async function updateChannel(provider: ChannelProvider, patch: Partial<ChannelSettings>) {
+    await update({
+      ...settings,
+      channels: settings.channels.map((channel) => channel.provider === provider ? { ...channel, ...patch } : channel)
+    });
+  }
+
+  function updateChannelDraft(provider: ChannelProvider, patch: Partial<ChannelSettings>) {
+    setSettings({
+      ...settings,
+      channels: settings.channels.map((channel) => channel.provider === provider ? { ...channel, ...patch } : channel)
+    });
+  }
+
+  function updateFeishuDraft(provider: ChannelProvider, patch: Partial<NonNullable<ChannelSettings["feishu"]>>) {
+    setSettings({
+      ...settings,
+      channels: settings.channels.map((channel) => channel.provider === provider
+        ? { ...channel, feishu: { appId: "", appSecret: "", ...channel.feishu, ...patch } }
+        : channel)
+    });
+  }
+
+  function updateWechatDraft(provider: ChannelProvider, patch: Partial<NonNullable<ChannelSettings["wechat"]>>) {
+    setSettings({
+      ...settings,
+      channels: settings.channels.map((channel) => channel.provider === provider
+        ? {
+          ...channel,
+          wechat: {
+            bridgeUrl: "http://127.0.0.1:18011",
+            pluginCommand: "openclaw channels login --channel openclaw-weixin",
+            ...channel.wechat,
+            ...patch
+          }
+        }
+        : channel)
+    });
   }
 
   async function addModel() {
@@ -795,6 +862,129 @@ export default function ManagerPage({
             新增模型
           </button>
           {testMessage && <p className="save-state">{testMessage}</p>}
+        </section>
+      )}
+
+      {section === "channels" && (
+        <section className="codex-config-main">
+          <header className="codex-config-header">
+            <div>
+              <p className="eyebrow">哈基Mi</p>
+              <h1>通道</h1>
+              <p>把飞书和微信消息接入哈基Mi，远程聊天也能进入当前办公能力。</p>
+            </div>
+          </header>
+          <div className="channel-grid">
+            {settings.channels.map((channel) => (
+              <div className="manager-section channel-card" key={channel.provider}>
+                <div className="section-title">
+                  <MessageCircle size={18} />
+                  <span>{channel.provider === "feishu" ? "飞书机器人" : "微信插件"}</span>
+                </div>
+                <label className="manager-toggle">
+                  <span>启用</span>
+                  <input
+                    type="checkbox"
+                    checked={channel.enabled}
+                    onChange={(event) => void updateChannel(channel.provider, { enabled: event.target.checked })}
+                  />
+                </label>
+                <label>
+                  默认路由
+                  <select
+                    value={channel.routeMode}
+                    onChange={(event) => void updateChannel(channel.provider, { routeMode: event.target.value as ChannelSettings["routeMode"] })}
+                  >
+                    <option value="chat">聊天</option>
+                    <option value="agent">办公区</option>
+                  </select>
+                </label>
+                <label>
+                  访问控制
+                  <select
+                    value={channel.accessMode}
+                    onChange={(event) =>
+                      void updateChannel(channel.provider, { accessMode: event.target.value as ChannelSettings["accessMode"] })
+                    }
+                  >
+                    <option value="pairing">配对后允许</option>
+                    <option value="allowlist">仅白名单</option>
+                  </select>
+                </label>
+                {channel.provider === "feishu" ? (
+                  <>
+                    <label>
+                      App ID
+                      <input
+                        value={channel.feishu?.appId ?? ""}
+                        onChange={(event) => updateFeishuDraft(channel.provider, { appId: event.target.value })}
+                        onBlur={() => void save()}
+                      />
+                    </label>
+                    <label>
+                      App Secret
+                      <input
+                        type="password"
+                        value={channel.feishu?.appSecret ?? ""}
+                        onChange={(event) => updateFeishuDraft(channel.provider, { appSecret: event.target.value })}
+                        onBlur={() => void save()}
+                      />
+                    </label>
+                    <p className="manager-note">使用飞书自建应用和 WebSocket 长连接事件订阅。需要事件：im.message.receive_v1。</p>
+                  </>
+                ) : (
+                  <>
+                    <label>
+                      桥接地址
+                      <input
+                        value={channel.wechat?.bridgeUrl ?? ""}
+                        onChange={(event) => updateWechatDraft(channel.provider, { bridgeUrl: event.target.value })}
+                        onBlur={() => void save()}
+                      />
+                    </label>
+                    <label>
+                      插件命令
+                      <input
+                        value={channel.wechat?.pluginCommand ?? ""}
+                        onChange={(event) => updateWechatDraft(channel.provider, { pluginCommand: event.target.value })}
+                        onBlur={() => void save()}
+                      />
+                    </label>
+                    <p className="manager-note">通过微信官方插件或本地 sidecar 桥接，哈基Mi只处理标准化消息和权限路由。</p>
+                  </>
+                )}
+                <div className="channel-status-row">
+                  <span>状态</span>
+                  <strong>{channel.status}</strong>
+                </div>
+                <div className="network-actions">
+                  <button
+                    className="secondary-command"
+                    disabled={channelBusyProvider === channel.provider}
+                    onClick={() => void runChannelAction(channel.provider, onStartChannel)}
+                  >
+                    启动通道
+                  </button>
+                  <button
+                    className="secondary-command"
+                    disabled={channelBusyProvider === channel.provider}
+                    onClick={() => void runChannelAction(channel.provider, onTestChannel)}
+                  >
+                    测试通道
+                  </button>
+                  <button
+                    className="secondary-command"
+                    disabled={channelBusyProvider === channel.provider}
+                    onClick={() => void runChannelAction(channel.provider, onStopChannel)}
+                  >
+                    停止通道
+                  </button>
+                </div>
+                <p className="manager-note">已允许来源：{channel.allowedPeers.length} 个</p>
+              </div>
+            ))}
+          </div>
+          {channelMessage && <p className="save-state">{channelMessage}</p>}
         </section>
       )}
 

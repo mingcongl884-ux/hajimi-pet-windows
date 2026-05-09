@@ -2,6 +2,12 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.29 - 2026-05-09
+
+- Added first-phase Feishu and WeChat channel settings with pairing/allowlist routing foundations.
+- Added channel adapter IPC skeletons for Feishu and WeChat plugin/sidecar flows.
+- Added model-safe pet action controls so chat responses can move, speak, jump, or change the desktop pet state.
+
 ## 0.1.28 - 2026-05-09
 
 - Added an in-app update flow in the system page: check, download, then restart to install without opening GitHub manually.

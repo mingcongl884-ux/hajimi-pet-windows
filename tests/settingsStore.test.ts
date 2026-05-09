@@ -2,7 +2,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SettingsStore } from "../electron/settingsStore";
+import { DEFAULT_SETTINGS, SettingsStore } from "../electron/settingsStore";
 
 describe("SettingsStore", () => {
   it("encrypts API keys when safe storage is available", async () => {
@@ -15,6 +15,7 @@ describe("SettingsStore", () => {
     const store = new SettingsStore(dir, safeStorage);
 
     await store.saveSettings({
+      ...DEFAULT_SETTINGS,
       activePetId: "xiaomi",
       activePetIds: ["xiaomi"],
       petDisplayNames: {},

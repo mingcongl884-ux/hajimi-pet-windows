@@ -22,6 +22,7 @@ import type { ChatMessage } from "../electron/chatClient";
 import type { AppSettings, PetConversationMode } from "../electron/settingsStore";
 import type { AnimationState } from "./lib/atlas";
 import type { PetAppState } from "./global";
+import type { PetAction } from "./lib/petActions";
 
 type AppMode = "pet" | "manager";
 type BubbleState = {
@@ -240,9 +241,15 @@ export default function App() {
         appendConversationMessages(optimisticSettings, conversationId, [response], modeForRequest)
       );
       busyRef.current = false;
-      showBubble(response.content, "info");
-      setStatus("waving");
-      window.setTimeout(() => setStatus("idle"), 900);
+      const petActions = response.petActions ?? [];
+      applyPetActions(petActions);
+      if (!petActions.some((action) => action.type === "say")) {
+        showBubble(response.content, "info");
+      }
+      if (!petActions.some((action) => action.type === "jump" || action.type === "runAround" || action.type === "mood")) {
+        setStatus("waving");
+        window.setTimeout(() => setStatus("idle"), 900);
+      }
     } catch (err) {
       busyRef.current = false;
       setStatus("failed");
@@ -328,6 +335,44 @@ export default function App() {
     }
   }
 
+  function applyPetActions(actions: PetAction[]) {
+    for (const action of actions) {
+      if (action.type === "say") {
+        showBubble(action.text, "info");
+      }
+      if (action.type === "jump") {
+        setStatus("jumping");
+        window.setTimeout(() => setStatus("idle"), 900);
+      }
+      if (action.type === "runAround") {
+        setStatus("running");
+        window.setTimeout(() => setStatus("idle"), (action.seconds ?? 3) * 1000);
+      }
+      if (action.type === "moveTo") {
+        void window.petApp.setPetWindowBounds({ x: action.x, y: action.y });
+      }
+      if (action.type === "mood") {
+        const moodStatus: Record<typeof action.mood, AnimationState> = {
+          idle: "idle",
+          happy: "waving",
+          working: "running",
+          failed: "failed"
+        };
+        setStatus(moodStatus[action.mood]);
+        if (action.mood !== "idle") {
+          window.setTimeout(() => setStatus("idle"), 1200);
+        }
+      }
+      if (action.type === "openChat") {
+        setChatOpen(true);
+        setBubble(undefined);
+      }
+      if (action.type === "stopMovement") {
+        setStatus("idle");
+      }
+    }
+  }
+
   function markInteraction() {
     lastInteractionRef.current = Date.now();
   }
@@ -352,6 +397,9 @@ export default function App() {
         onDownloadUpdate={() => window.petApp.downloadUpdate()}
         onInstallUpdate={() => window.petApp.installUpdate()}
         onCheckNotices={() => window.petApp.checkNotices()}
+        onStartChannel={(provider) => window.petApp.startChannel(provider)}
+        onStopChannel={(provider) => window.petApp.stopChannel(provider)}
+        onTestChannel={(provider) => window.petApp.testChannel(provider)}
         onSave={saveSettings}
         chatError={error}
         onCreateConversation={createNewConversation}

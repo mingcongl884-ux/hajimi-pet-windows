@@ -45,4 +45,38 @@ describe("sendChatMessage", () => {
       code: "missing-api-key"
     });
   });
+
+  it("reads validated pet actions from model tool calls", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            role: "assistant",
+            content: "",
+            tool_calls: [{
+              id: "call_pet",
+              type: "function",
+              function: {
+                name: "control_pet",
+                arguments: JSON.stringify({ type: "jump" })
+              }
+            }]
+          }
+        }]
+      })
+    });
+
+    const response = await sendChatMessage(fetchMock, {
+      baseUrl: "https://api.example.com",
+      apiKey: "secret",
+      model: "gpt-4.1-mini",
+      systemPrompt: ""
+    }, [{ role: "user", content: "跳一下" }]);
+
+    expect(response.content).toBe("好的。");
+    expect(response.petActions).toEqual([{ type: "jump" }]);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools[0].function.name).toBe("control_pet");
+  });
 });

@@ -15,6 +15,8 @@ import { appendFile, cp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAgentTask } from "./agentClient.js";
+import { startChannelAdapter, stopChannelAdapter, testChannelAdapter } from "./channelAdapters.js";
+import type { ChannelProvider } from "../src/lib/channels.js";
 import { runClaudeAgentTask, testClaudeAgentModel } from "./claudeAgentClient.js";
 import { sendChatMessage, type ChatMessage } from "./chatClient.js";
 import {
@@ -221,6 +223,36 @@ function registerIpc() {
     refreshTray();
     return broadcastState();
   });
+  ipcMain.handle("pet:start-channel", async (_event, provider: ChannelProvider) => {
+    const settings = await settingsStore.loadSettings();
+    const channel = settings.channels.find((item) => item.provider === provider);
+    if (!channel) {
+      throw new Error("通道不存在。");
+    }
+    const result = await startChannelAdapter(channel);
+    await settingsStore.saveSettings(updateChannelStatus(settings, provider, result.status));
+    await broadcastState();
+    return result;
+  });
+  ipcMain.handle("pet:stop-channel", async (_event, provider: ChannelProvider) => {
+    const settings = await settingsStore.loadSettings();
+    const channel = settings.channels.find((item) => item.provider === provider);
+    if (!channel) {
+      throw new Error("通道不存在。");
+    }
+    const result = await stopChannelAdapter(channel);
+    await settingsStore.saveSettings(updateChannelStatus(settings, provider, result.status));
+    await broadcastState();
+    return result;
+  });
+  ipcMain.handle("pet:test-channel", async (_event, provider: ChannelProvider) => {
+    const settings = await settingsStore.loadSettings();
+    const channel = settings.channels.find((item) => item.provider === provider);
+    if (!channel) {
+      throw new Error("通道不存在。");
+    }
+    return testChannelAdapter(channel);
+  });
   ipcMain.handle("pet:send-chat", async (_event, messages: ChatMessage[]) => {
     const settings = await settingsStore.loadSettings();
     return sendChatMessage(fetch, getActiveModelSettings(settings, "chat"), messages);
@@ -421,6 +453,17 @@ function setPetWindowPosition(slot: number, x: number, y: number) {
       })
     );
   }
+}
+
+function updateChannelStatus(
+  settings: AppSettings,
+  provider: ChannelProvider,
+  status: "disabled" | "starting" | "connected" | "error"
+): AppSettings {
+  return {
+    ...settings,
+    channels: settings.channels.map((channel) => channel.provider === provider ? { ...channel, status } : channel)
+  };
 }
 
 async function reconcilePetWindows(settings: AppSettings) {

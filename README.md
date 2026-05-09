@@ -100,6 +100,7 @@ Installers are generated in `dist/`.
 | 0.1.26 | `HaJiMi-Setup-0.1.26.exe` | Adds GitHub Actions release publishing, widens the manager window, and defaults fresh installs to the smallest pet size. |
 | 0.1.27 | `HaJiMi-Setup-0.1.27.exe` | Fixes release workflow tests across GitHub runner time zones. |
 | 0.1.28 | `HaJiMi-Setup-0.1.28.exe` | Adds a Codex-style in-app update flow: check, download, and restart to install from the system page. |
+| 0.1.29 | `HaJiMi-Setup-0.1.29.exe` | Adds first-phase Feishu/WeChat channel settings, routing foundations, and pet action controls. |
 
 Use the latest installer unless you need to compare a previous build.
 

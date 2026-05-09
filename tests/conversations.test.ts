@@ -6,9 +6,10 @@ import {
   ensureActiveConversation,
   renameConversation
 } from "../src/lib/conversations";
-import type { AppSettings } from "../electron/settingsStore";
+import { DEFAULT_SETTINGS, type AppSettings } from "../electron/settingsStore";
 
 const baseSettings: AppSettings = {
+  ...DEFAULT_SETTINGS,
   activePetId: "xiaomi",
   activePetIds: ["xiaomi"],
   petDisplayNames: {},

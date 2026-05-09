@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ChatMessage } from "./chatClient.js";
+import type { ChannelSettings } from "../src/lib/channels.js";
+import { cloneChannelSettings, defaultChannelSettings } from "../src/lib/channels.js";
 import type { MovementIntensity } from "../src/lib/movement.js";
 
 export type ApiSettings = {
@@ -83,6 +85,7 @@ export type AppSettings = {
   agent: AgentSettings;
   heartbeat: HeartbeatSettings;
   network: NetworkSettings;
+  channels: ChannelSettings[];
   activeConversationId: string;
   conversations: PetConversation[];
 };
@@ -158,6 +161,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     noticeFeedUrl: GITHUB_NOTICE_FEED_URL,
     readNoticeIds: []
   },
+  channels: defaultChannelSettings(),
   activeConversationId: "default",
   conversations: [
     {
@@ -196,6 +200,7 @@ export class SettingsStore {
           agent: { ...DEFAULT_SETTINGS.agent },
           heartbeat: { ...DEFAULT_SETTINGS.heartbeat, sentGreetingKeys: [] },
           network: { ...DEFAULT_SETTINGS.network, readNoticeIds: [] },
+          channels: cloneChannelSettings(DEFAULT_SETTINGS.channels),
           conversations: DEFAULT_SETTINGS.conversations.map((conversation) => ({ ...conversation }))
         };
       }
@@ -261,6 +266,7 @@ export class SettingsStore {
         ...stored.network,
         readNoticeIds: stored.network?.readNoticeIds ?? []
       },
+      channels: cloneChannelSettings(stored.channels),
       conversations: stored.conversations?.length
         ? stored.conversations
         : DEFAULT_SETTINGS.conversations.map((conversation) => ({ ...conversation })),

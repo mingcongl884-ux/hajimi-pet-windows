@@ -1,7 +1,9 @@
 import type { ChatMessage, ChatResponse } from "../electron/chatClient";
+import type { ChannelAdapterResult } from "../electron/channelAdapters";
 import type { UpdateCheckResult } from "../electron/networkClient";
 import type { AppSettings, ModelProfile } from "../electron/settingsStore";
 import type { RemoteNotice } from "../electron/settingsStore";
+import type { ChannelProvider } from "./lib/channels";
 import type { PetPlayCommand } from "./lib/petPlay";
 import type { InstalledPet } from "./lib/petTypes";
 
@@ -35,6 +37,9 @@ declare global {
       deletePet(petId: string): Promise<PetAppState>;
       switchPet(petId: string): Promise<PetAppState>;
       saveSettings(settings: AppSettings): Promise<PetAppState>;
+      startChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
+      stopChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
+      testChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
       sendChat(messages: ChatMessage[]): Promise<ChatResponse>;
       runAgentTask(task: string): Promise<ChatResponse>;
       heartbeatGreeting(prompt: string): Promise<ChatResponse>;

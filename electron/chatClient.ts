@@ -1,3 +1,5 @@
+import { readPetAction, type PetAction } from "../src/lib/petActions.js";
+
 export type ChatRole = "system" | "user" | "assistant";
 
 export type ChatMessage = {
@@ -15,6 +17,7 @@ export type ChatApiSettings = {
 export type ChatResponse = {
   role: "assistant";
   content: string;
+  petActions?: PetAction[];
 };
 
 export class ChatClientError extends Error {
@@ -62,7 +65,9 @@ export async function sendChatMessage(
     },
     body: JSON.stringify({
       model: settings.model,
-      messages: requestMessages
+      messages: requestMessages,
+      tools: PET_ACTION_TOOLS,
+      tool_choice: "auto"
     })
   });
 
@@ -76,11 +81,12 @@ export async function sendChatMessage(
 
   const data = await response.json();
   const content = readAssistantContent(data);
-  if (!content) {
+  const petActions = readAssistantPetActions(data);
+  if (!content && petActions.length === 0) {
     throw new ChatClientError("malformed-response", "Chat provider returned an invalid response.");
   }
 
-  return { role: "assistant", content };
+  return { role: "assistant", content: content || "好的。", petActions: petActions.length ? petActions : undefined };
 }
 
 function buildEndpoint(baseUrl: string): string {
@@ -104,3 +110,87 @@ function readAssistantContent(data: unknown): string | undefined {
   const first = choices[0] as { message?: { content?: unknown } } | undefined;
   return typeof first?.message?.content === "string" ? first.message.content : undefined;
 }
+
+function readAssistantPetActions(data: unknown): PetAction[] {
+  if (!data || typeof data !== "object") {
+    return [];
+  }
+  const choices = (data as { choices?: unknown }).choices;
+  if (!Array.isArray(choices)) {
+    return [];
+  }
+  const message = (choices[0] as { message?: { tool_calls?: unknown } } | undefined)?.message;
+  const toolCalls = message?.tool_calls;
+  if (!Array.isArray(toolCalls)) {
+    return [];
+  }
+
+  return toolCalls
+    .map((toolCall) => readToolCallPetAction(toolCall))
+    .filter((action): action is PetAction => Boolean(action));
+}
+
+function readToolCallPetAction(toolCall: unknown): PetAction | undefined {
+  if (!toolCall || typeof toolCall !== "object") {
+    return undefined;
+  }
+  const typed = toolCall as { function?: { name?: unknown; arguments?: unknown } };
+  if (typed.function?.name !== "control_pet" || typeof typed.function.arguments !== "string") {
+    return undefined;
+  }
+  try {
+    return readPetAction(JSON.parse(typed.function.arguments));
+  } catch {
+    return undefined;
+  }
+}
+
+const PET_ACTION_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "control_pet",
+      description: "Safely control the HaJiMi desktop pet when the user asks the pet to move, jump, speak, or change mood.",
+      parameters: {
+        type: "object",
+        oneOf: [
+          {
+            properties: {
+              type: { const: "say" },
+              text: { type: "string", minLength: 1, maxLength: 140 }
+            },
+            required: ["type", "text"]
+          },
+          {
+            properties: {
+              type: { enum: ["jump", "openChat", "stopMovement"] }
+            },
+            required: ["type"]
+          },
+          {
+            properties: {
+              type: { const: "moveTo" },
+              x: { type: "number" },
+              y: { type: "number" }
+            },
+            required: ["type", "x", "y"]
+          },
+          {
+            properties: {
+              type: { const: "runAround" },
+              seconds: { type: "number", minimum: 1, maximum: 30 }
+            },
+            required: ["type"]
+          },
+          {
+            properties: {
+              type: { const: "mood" },
+              mood: { enum: ["idle", "happy", "working", "failed"] }
+            },
+            required: ["type", "mood"]
+          }
+        ]
+      }
+    }
+  }
+];

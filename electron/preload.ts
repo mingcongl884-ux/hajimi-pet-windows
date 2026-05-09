@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { ChatMessage } from "./chatClient.js";
 import type { AppSettings, ModelProfile } from "./settingsStore.js";
+import type { ChannelProvider } from "../src/lib/channels.js";
 import type { PetAppState, PetWindowBounds } from "../src/global.js";
 import type { PetPlayCommand } from "../src/lib/petPlay.js";
 
@@ -12,6 +13,9 @@ contextBridge.exposeInMainWorld("petApp", {
   deletePet: (petId: string) => ipcRenderer.invoke("pet:delete", petId),
   switchPet: (petId: string) => ipcRenderer.invoke("pet:switch", petId),
   saveSettings: (settings: AppSettings) => ipcRenderer.invoke("pet:save-settings", settings),
+  startChannel: (provider: ChannelProvider) => ipcRenderer.invoke("pet:start-channel", provider),
+  stopChannel: (provider: ChannelProvider) => ipcRenderer.invoke("pet:stop-channel", provider),
+  testChannel: (provider: ChannelProvider) => ipcRenderer.invoke("pet:test-channel", provider),
   sendChat: (messages: ChatMessage[]) => ipcRenderer.invoke("pet:send-chat", messages),
   runAgentTask: (task: string) => ipcRenderer.invoke("pet:run-agent-task", task),
   heartbeatGreeting: (prompt: string) => ipcRenderer.invoke("pet:heartbeat-greeting", prompt),
