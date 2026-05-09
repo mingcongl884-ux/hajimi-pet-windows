@@ -1,0 +1,17 @@
+{
+  "id": "xiaomi",
+  "displayName": "\u54c8\u57faMi",
+  "description": "A tiny lucky-lion kitten with big amber eyes, gray stripes, and a red gold-trimmed charm reading \u7206\u91cf.",
+  "spritesheetPath": "spritesheet.webp",
+  "animationFrameCounts": {
+    "idle": 6,
+    "runRight": 8,
+    "runLeft": 8,
+    "waving": 4,
+    "jumping": 5,
+    "failed": 8,
+    "waiting": 6,
+    "running": 6,
+    "review": 5
+  }
+}

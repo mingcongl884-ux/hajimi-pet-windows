@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist-electron/
+electron-smoke.*.log
+tmp-run-extract*/
+*.log
+.env
+.env.*
+!.env.example
+coverage/
+.vite/
+*.tsbuildinfo
+desktop-*.png
