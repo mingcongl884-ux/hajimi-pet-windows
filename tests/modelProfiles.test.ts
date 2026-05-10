@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ensureModelProfiles,
   getActiveModelSettings,
+  getPetModelSettings,
   upsertModelProfile
 } from "../src/lib/modelProfiles";
 import { DEFAULT_SETTINGS, type AppSettings } from "../electron/settingsStore";
@@ -10,6 +11,7 @@ const baseSettings: AppSettings = {
   ...DEFAULT_SETTINGS,
   activePetId: "xiaomi",
   activePetIds: ["xiaomi"],
+  petModelBindings: {},
   petDisplayNames: {},
   petScale: 1,
   movementEnabled: false,
@@ -92,5 +94,25 @@ describe("model profiles", () => {
     expect(settings.models).toHaveLength(2);
     expect(getActiveModelSettings({ ...settings, activeChatModelId: "new-model" }, "chat").baseUrl)
       .toBe("https://new.example.com");
+  });
+
+  it("resolves a pet-specific brain model and falls back to the active purpose model", () => {
+    const settings = ensureModelProfiles({
+      ...baseSettings,
+      petModelBindings: {
+        imported: "pet-brain",
+        missing: "deleted-model"
+      },
+      models: [
+        { id: "default", name: "Default", provider: "openai-compatible", baseUrl: "https://chat.example.com", apiKey: "a", model: "chat-model", systemPrompt: "chat" },
+        { id: "pet-brain", name: "Pet Brain", provider: "openai-compatible", baseUrl: "https://pet.example.com", apiKey: "b", model: "pet-model", systemPrompt: "pet" }
+      ],
+      activeChatModelId: "default",
+      activeAgentModelId: "default"
+    });
+
+    expect(getPetModelSettings(settings, "imported", "chat").model).toBe("pet-model");
+    expect(getPetModelSettings(settings, "missing", "chat").model).toBe("chat-model");
+    expect(ensureModelProfiles(settings).petModelBindings).toEqual({ imported: "pet-brain" });
   });
 });

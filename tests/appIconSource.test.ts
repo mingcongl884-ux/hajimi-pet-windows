@@ -25,6 +25,17 @@ describe("app icon wiring", () => {
     expect(packageJson.build.nsis.allowToChangeInstallationDirectory).toBe(true);
   });
 
+  it("keeps NSIS unpack scope narrow so the installer does not copy every dependency file", () => {
+    expect(packageJson.build.asarUnpack).not.toContain("node_modules/**");
+    expect(packageJson.build.asarUnpack).toEqual(expect.arrayContaining([
+      "node_modules/node/**",
+      "node_modules/openclaw/**",
+      "node_modules/@tencent-weixin/openclaw-weixin/**",
+      "node_modules/qrcode-terminal/**",
+      "node_modules/zod/**"
+    ]));
+  });
+
   it("updates the packaged executable icon before installer creation", () => {
     expect(afterPackSource).toContain("--set-icon");
     expect(afterPackSource).toContain("node_modules");

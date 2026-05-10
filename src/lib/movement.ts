@@ -5,7 +5,15 @@ export type MovementIntensity = "calm" | "normal" | "lively";
 export type MovementControllerOptions = {
   screen: { width: number; height: number };
   pet: { width: number; height: number };
+  bounds?: MovementBounds;
   rng?: () => number;
+};
+
+export type MovementBounds = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
 };
 
 export type MovementSnapshot = {
@@ -29,6 +37,7 @@ export class MovementController {
   private readonly rng: () => number;
   private screen: { width: number; height: number };
   private pet: { width: number; height: number };
+  private bounds?: MovementBounds;
   private enabled = false;
   private dragging = false;
   private chatOpen = false;
@@ -49,6 +58,7 @@ export class MovementController {
   constructor(options: MovementControllerOptions) {
     this.screen = options.screen;
     this.pet = options.pet;
+    this.bounds = options.bounds;
     this.rng = options.rng ?? Math.random;
     this.y = Math.max(0, this.screen.height - this.pet.height);
     this.pickNextMode();
@@ -80,6 +90,11 @@ export class MovementController {
 
   setScreen(screen: { width: number; height: number }): void {
     this.screen = screen;
+    this.clampPosition();
+  }
+
+  setBounds(bounds: MovementBounds): void {
+    this.bounds = bounds;
     this.clampPosition();
   }
 
@@ -203,19 +218,21 @@ export class MovementController {
   }
 
   private bounceWithinBounds(): void {
+    const minX = this.minX();
     const maxX = this.maxX();
+    const minY = this.minY();
     const maxY = this.maxY();
 
-    if (this.x <= 0) {
-      this.x = 0;
+    if (this.x <= minX) {
+      this.x = minX;
       this.headingX = Math.abs(this.headingX);
     } else if (this.x >= maxX) {
       this.x = maxX;
       this.headingX = -Math.abs(this.headingX);
     }
 
-    if (this.y <= 0) {
-      this.y = 0;
+    if (this.y <= minY) {
+      this.y = minY;
       this.headingY = Math.abs(this.headingY);
     } else if (this.y >= maxY) {
       this.y = maxY;
@@ -227,16 +244,24 @@ export class MovementController {
     return INTENSITY_SPEED[this.intensity];
   }
 
+  private minX(): number {
+    return this.bounds?.minX ?? 0;
+  }
+
   private maxX(): number {
-    return Math.max(0, this.screen.width - this.pet.width);
+    return this.bounds?.maxX ?? Math.max(0, this.screen.width - this.pet.width);
+  }
+
+  private minY(): number {
+    return this.bounds?.minY ?? 0;
   }
 
   private maxY(): number {
-    return Math.max(0, this.screen.height - this.pet.height);
+    return this.bounds?.maxY ?? Math.max(0, this.screen.height - this.pet.height);
   }
 
   private clampPosition(): void {
-    this.x = Math.min(Math.max(0, this.x), this.maxX());
-    this.y = Math.min(Math.max(0, this.y), this.maxY());
+    this.x = Math.min(Math.max(this.minX(), this.x), this.maxX());
+    this.y = Math.min(Math.max(this.minY(), this.y), this.maxY());
   }
 }

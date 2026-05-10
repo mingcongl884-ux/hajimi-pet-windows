@@ -2,6 +2,23 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.38 - 2026-05-11
+
+- Fixed packaged WeChat/OpenClaw detection so HaJiMi looks inside its bundled `resources/app.asar.unpacked/node_modules` runtime before falling back to a system `openclaw` command.
+- Improved the channel test error copy to distinguish a missing OpenClaw install from a bundled OpenClaw launch failure.
+
+## 0.1.37 - 2026-05-10
+
+- Made two-pet play focus mostly on slower, longer "chase and follow" scenes while keeping brief approach/jump moments.
+- Stabilized settings saves with serialized writes and Windows rename retries to avoid occasional `settings.json` write failures.
+- Synchronized imported/switched pets with the active pet list, paused together-play while chat is open, and saved each pet window position independently.
+- Improved pet action movement by using the current real window position before jump/move commands and fixed reminder movement on offset displays.
+
+## 0.1.36 - 2026-05-10
+
+- Accept OpenAI-compatible base URLs that already include `/v1` without producing a duplicated `/v1/v1/chat/completions` request.
+- Reuse the same endpoint normalization in normal chat and the OpenAI-compatible office agent path.
+
 ## 0.1.35 - 2026-05-09
 
 - Bundle Tencent's WeChat ClawBot channel plugin itself and copy it into the isolated HaJiMi OpenClaw state directory instead of relying on the official npm installer path.

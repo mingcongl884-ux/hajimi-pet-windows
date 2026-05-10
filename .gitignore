@@ -11,3 +11,5 @@ coverage/
 .vite/
 *.tsbuildinfo
 desktop-*.png
+.superpowers/
+previews/

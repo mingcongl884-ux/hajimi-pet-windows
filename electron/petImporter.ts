@@ -9,6 +9,7 @@ import type {
   PetImportErrorDetails,
   PetManifest
 } from "./types.js";
+import { normalizeAnimationFrameCounts } from "../src/lib/atlas.js";
 
 const PET_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{1,47}$/i;
 const PET_JSON = "pet.json";
@@ -40,6 +41,7 @@ export async function importPetBundle(
 ): Promise<ImportedPetBundle> {
   const source = await readBundle(sourcePath);
   const manifest = parseManifest(source.manifestBuffer);
+  const normalizedManifest = normalizePetManifest(manifest);
   const petId = getPetId(manifest);
   validateSpritesheet(source.spritesheetBuffer);
 
@@ -58,12 +60,12 @@ export async function importPetBundle(
   }
 
   await mkdir(destinationDir, { recursive: true });
-  await writeFile(join(destinationDir, PET_JSON), source.manifestBuffer);
+  await writeFile(join(destinationDir, PET_JSON), `${JSON.stringify(normalizedManifest, null, 2)}\n`);
   await writeFile(join(destinationDir, SPRITESHEET), source.spritesheetBuffer);
 
   return {
     petId,
-    manifest,
+    manifest: normalizedManifest,
     destinationDir,
     replaced: replace
   };
@@ -222,6 +224,13 @@ function parseManifest(buffer: Buffer): PetManifest {
       message: error instanceof Error ? error.message : "Invalid pet.json."
     });
   }
+}
+
+function normalizePetManifest(manifest: PetManifest): PetManifest {
+  return {
+    ...manifest,
+    animationFrameCounts: normalizeAnimationFrameCounts(manifest.animationFrameCounts)
+  };
 }
 
 function getPetId(manifest: PetManifest): string {

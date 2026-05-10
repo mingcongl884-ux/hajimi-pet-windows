@@ -5,6 +5,7 @@ import type { AppSettings, ModelProfile } from "../electron/settingsStore";
 import type { RemoteNotice } from "../electron/settingsStore";
 import type { ChannelProvider } from "./lib/channels";
 import type { PetPlayCommand } from "./lib/petPlay";
+import type { PetMoveCommand } from "./lib/petMotion";
 import type { InstalledPet } from "./lib/petTypes";
 
 export type PetAppState = {
@@ -13,6 +14,8 @@ export type PetAppState = {
   activePet?: InstalledPet;
   activePets?: InstalledPet[];
   screen: {
+    x?: number;
+    y?: number;
     width: number;
     height: number;
   };
@@ -29,6 +32,11 @@ export type PetWindowBounds = {
   y: number;
 };
 
+export type ScreenPoint = {
+  x: number;
+  y: number;
+};
+
 declare global {
   interface Window {
     petApp: {
@@ -40,8 +48,8 @@ declare global {
       startChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
       stopChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
       testChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
-      sendChat(messages: ChatMessage[]): Promise<ChatResponse>;
-      runAgentTask(task: string): Promise<ChatResponse>;
+      sendChat(messages: ChatMessage[], modelId?: string): Promise<ChatResponse>;
+      runAgentTask(task: string, modelId?: string): Promise<ChatResponse>;
       heartbeatGreeting(prompt: string): Promise<ChatResponse>;
       testModel(model: ModelProfile): Promise<string>;
       checkUpdates(): Promise<UpdateCheckResult>;
@@ -53,9 +61,14 @@ declare global {
       switchProject(projectId: string): Promise<PetAppState>;
       deleteProject(projectId: string): Promise<PetAppState>;
       setPetWindowBounds(bounds: PetWindowBounds): Promise<void>;
+      getPetWindowBounds(): Promise<PetAppState["windowBounds"]>;
+      movePetTo(command: PetMoveCommand): Promise<void>;
+      setChatOpen(open: boolean): Promise<void>;
       setMousePassthrough(passthrough: boolean): Promise<void>;
+      getCursorScreenPoint(): Promise<ScreenPoint>;
       onStateChanged(callback: (state: PetAppState) => void): () => void;
       onPlayCommand(callback: (command: PetPlayCommand) => void): () => void;
+      onOutsideInteraction(callback: () => void): () => void;
     };
   }
 }

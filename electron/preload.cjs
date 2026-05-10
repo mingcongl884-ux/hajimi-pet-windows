@@ -10,8 +10,8 @@ contextBridge.exposeInMainWorld("petApp", {
   startChannel: (provider) => ipcRenderer.invoke("pet:start-channel", provider),
   stopChannel: (provider) => ipcRenderer.invoke("pet:stop-channel", provider),
   testChannel: (provider) => ipcRenderer.invoke("pet:test-channel", provider),
-  sendChat: (messages) => ipcRenderer.invoke("pet:send-chat", messages),
-  runAgentTask: (task) => ipcRenderer.invoke("pet:run-agent-task", task),
+  sendChat: (messages, modelId) => ipcRenderer.invoke("pet:send-chat", messages, modelId),
+  runAgentTask: (task, modelId) => ipcRenderer.invoke("pet:run-agent-task", task, modelId),
   heartbeatGreeting: (prompt) => ipcRenderer.invoke("pet:heartbeat-greeting", prompt),
   testModel: (model) => ipcRenderer.invoke("pet:test-model", model),
   checkUpdates: () => ipcRenderer.invoke("pet:check-updates"),
@@ -23,7 +23,11 @@ contextBridge.exposeInMainWorld("petApp", {
   switchProject: (projectId) => ipcRenderer.invoke("pet:switch-project", projectId),
   deleteProject: (projectId) => ipcRenderer.invoke("pet:delete-project", projectId),
   setPetWindowBounds: (bounds) => ipcRenderer.invoke("pet:set-window-bounds", petSlot, bounds),
+  getPetWindowBounds: () => ipcRenderer.invoke("pet:get-window-bounds", petSlot),
+  movePetTo: (command) => ipcRenderer.invoke("pet:move-pet-to", petSlot, command),
+  setChatOpen: (open) => ipcRenderer.invoke("pet:set-chat-open", petSlot, open),
   setMousePassthrough: (passthrough) => ipcRenderer.invoke("pet:set-mouse-passthrough", petSlot, passthrough),
+  getCursorScreenPoint: () => ipcRenderer.invoke("pet:get-cursor-screen-point"),
   onStateChanged: (callback) => {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on("pet:state-changed", listener);
@@ -33,5 +37,10 @@ contextBridge.exposeInMainWorld("petApp", {
     const listener = (_event, command) => callback(command);
     ipcRenderer.on("pet:play-command", listener);
     return () => ipcRenderer.off("pet:play-command", listener);
+  },
+  onOutsideInteraction: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("pet:outside-interaction", listener);
+    return () => ipcRenderer.off("pet:outside-interaction", listener);
   }
 });

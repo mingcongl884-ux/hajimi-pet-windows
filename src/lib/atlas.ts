@@ -36,6 +36,35 @@ export const ANIMATION_ROWS: Record<AnimationState, number> = {
 const COLUMNS = 8;
 const ROWS = 9;
 
+export const DEFAULT_ANIMATION_FRAME_COUNTS: Record<AnimationState, number> = {
+  idle: 6,
+  runRight: 8,
+  runLeft: 8,
+  waving: 4,
+  jumping: 5,
+  failed: 8,
+  waiting: 6,
+  running: 6,
+  review: 5
+};
+
+export function getAnimationFrameCount(
+  counts: Partial<Record<AnimationState, number>> | undefined,
+  state: AnimationState
+) {
+  const count = counts?.[state] ?? DEFAULT_ANIMATION_FRAME_COUNTS[state];
+  return Math.min(Math.max(Math.floor(count), 1), COLUMNS);
+}
+
+export function normalizeAnimationFrameCounts(counts: Partial<Record<AnimationState, number>> | undefined) {
+  return Object.fromEntries(
+    Object.keys(ANIMATION_ROWS).map((state) => [
+      state,
+      getAnimationFrameCount(counts, state as AnimationState)
+    ])
+  ) as Record<AnimationState, number>;
+}
+
 export function getAtlasFrame(
   dimensions: ImageDimensions,
   state: AnimationState,

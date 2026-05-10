@@ -3,13 +3,19 @@ export type PetAction =
   | { type: "jump" }
   | { type: "runAround"; seconds?: number }
   | { type: "moveTo"; x: number; y: number }
+  | { type: "moveToEdge"; edge: PetEdge }
+  | { type: "setMovement"; enabled: boolean; intensity?: PetMovementIntensity }
   | { type: "mood"; mood: PetMood }
   | { type: "openChat" }
   | { type: "stopMovement" };
 
-type PetMood = "idle" | "happy" | "working" | "failed";
+type PetMood = "idle" | "happy" | "working" | "waiting" | "review" | "failed";
+type PetEdge = "left" | "right" | "topLeft" | "topRight" | "bottomLeft" | "bottomRight" | "center";
+type PetMovementIntensity = "calm" | "normal" | "lively";
 
-const moods = new Set<PetMood>(["idle", "happy", "working", "failed"]);
+const moods = new Set<PetMood>(["idle", "happy", "working", "waiting", "review", "failed"]);
+const edges = new Set<PetEdge>(["left", "right", "topLeft", "topRight", "bottomLeft", "bottomRight", "center"]);
+const intensities = new Set<PetMovementIntensity>(["calm", "normal", "lively"]);
 
 export function readPetAction(value: unknown): PetAction | undefined {
   if (!value || typeof value !== "object") {
@@ -27,6 +33,24 @@ export function readPetAction(value: unknown): PetAction | undefined {
 
   if (typed.type === "moveTo" && typeof typed.x === "number" && typeof typed.y === "number") {
     return { type: "moveTo", x: Math.round(typed.x), y: Math.round(typed.y) };
+  }
+
+  if (typed.type === "moveToEdge" && edges.has(typed.edge as PetEdge)) {
+    return { type: "moveToEdge", edge: typed.edge as PetEdge };
+  }
+
+  if (typed.type === "setMovement" && typeof typed.enabled === "boolean") {
+    if (typed.intensity === undefined) {
+      return { type: "setMovement", enabled: typed.enabled };
+    }
+    if (intensities.has(typed.intensity as PetMovementIntensity)) {
+      return {
+        type: "setMovement",
+        enabled: typed.enabled,
+        intensity: typed.intensity as PetMovementIntensity
+      };
+    }
+    return undefined;
   }
 
   if (typed.type === "runAround") {

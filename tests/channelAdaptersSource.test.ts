@@ -25,8 +25,14 @@ describe("channel adapter source", () => {
     expect(adapterSource).toContain("node/package.json");
     expect(adapterSource).toContain("node/bin/node");
     expect(adapterSource).toContain(".asar.unpacked");
+    expect(adapterSource).toContain("process.resourcesPath");
+    expect(adapterSource).toContain("resolveBundledNodeModulesRoots");
+    expect(adapterSource).toContain("resolveBundledPackageRootFromNodeModules");
+    expect(adapterSource).toContain("findFirstExistingPath");
     expect(adapterSource).toContain("openclaw-runtime");
     expect(adapterSource).toContain("OPENCLAW_STATE_DIR");
+    expect(adapterSource).toContain("usedBundled");
+    expect(adapterSource).toContain("没有检测到内置或系统 OpenClaw");
     expect(adapterSource).toContain('"channels", "status", "--probe"');
     expect(adapterSource).toContain("launchVisiblePowerShell");
   });

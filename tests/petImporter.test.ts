@@ -77,6 +77,26 @@ describe("importPetBundle", () => {
     await expect(readFile(join(petsDir, "pixel_cat", "spritesheet.webp"))).resolves.toHaveLength(30);
   });
 
+  it("fills missing animation frame counts for imported pets", async () => {
+    const petsDir = await makeTempRoot();
+    const { source } = await createBundleFolder({
+      "pet.json": JSON.stringify({ id: "stable_pet", name: "Stable Pet" }),
+      "spritesheet.webp": makeWebp(80, 90)
+    });
+
+    await importPetBundle(source, petsDir);
+    const manifest = JSON.parse(await readFile(join(petsDir, "stable_pet", "pet.json"), "utf8"));
+
+    expect(manifest.animationFrameCounts).toMatchObject({
+      idle: 6,
+      waving: 4,
+      jumping: 5,
+      waiting: 6,
+      running: 6,
+      review: 5
+    });
+  });
+
   it("imports a zip bundle from one first-level folder and derives a stable id from name", async () => {
     const petsDir = await makeTempRoot();
     const { zipPath } = await createBundleZip({

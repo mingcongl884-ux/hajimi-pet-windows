@@ -33,4 +33,23 @@ describe("pet play integration source", () => {
     expect(managerSource).toContain("playTogetherEnabled");
     expect(settingsPanelSource).toContain("playTogetherEnabled");
   });
+
+  it("pauses together-play commands while any pet chat panel is open", () => {
+    expect(mainSource).toContain("petChatOpen");
+    expect(mainSource).toContain('"pet:set-chat-open"');
+    expect(preloadSource).toContain("setChatOpen");
+    expect(globalSource).toContain("setChatOpen(open: boolean)");
+    expect(mainSource).toContain("isAnyPetChatOpen(activePetIds.length)");
+  });
+
+  it("keeps active pet id and active pet list synchronized in main-process pet switches", () => {
+    expect(mainSource).toMatch(/activePetId:\s*petId[\s\S]*activePetIds:\s*\[petId\]/);
+    expect(mainSource).toMatch(/activePetId:\s*imported\.petId[\s\S]*activePetIds:\s*\[imported\.petId\]/);
+  });
+
+  it("saves each pet window position with per-slot throttling and catches background save errors", () => {
+    expect(mainSource).toContain("lastPositionSaveBySlot");
+    expect(mainSource).toContain("lastPositionSaveBySlot.get(slot)");
+    expect(mainSource).toContain(".catch((error) =>");
+  });
 });

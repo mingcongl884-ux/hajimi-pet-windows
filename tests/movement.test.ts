@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MovementController } from "../src/lib/movement";
+import { PET_WINDOW_SIZE, getPetWindowMovementBounds } from "../src/lib/petWindowGeometry";
 
 describe("MovementController", () => {
   it("keeps autonomous movement within screen bounds", () => {
@@ -121,5 +122,21 @@ describe("MovementController", () => {
     const activeDistance = Math.hypot(active.snapshot().x - 400, active.snapshot().y - 300);
     const chattingDistance = Math.hypot(chatting.snapshot().x - 400, chatting.snapshot().y - 300);
     expect(activeDistance).toBeGreaterThan(chattingDistance);
+  });
+
+  it("allows the transparent pet window to move left of the screen while the visible body stays in bounds", () => {
+    const bounds = getPetWindowMovementBounds({ width: 1920, height: 1080 }, PET_WINDOW_SIZE, 0.5);
+    const controller = new MovementController({
+      screen: { width: 1920, height: 1080 },
+      pet: PET_WINDOW_SIZE,
+      bounds,
+      rng: () => 0.2
+    });
+
+    controller.setPosition(-999, 100);
+    expect(controller.snapshot().x).toBe(bounds.minX);
+
+    controller.setPosition(9999, 100);
+    expect(controller.snapshot().x).toBe(bounds.maxX);
   });
 });

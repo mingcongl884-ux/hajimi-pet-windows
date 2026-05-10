@@ -27,10 +27,15 @@ export function ensureModelProfiles(settings: AppSettings): AppSettings {
     ? settings.activeAgentModelId
     : activeChatModelId;
   const activeChatModel = models.find((model) => model.id === activeChatModelId) ?? models[0];
+  const modelIds = new Set(models.map((model) => model.id));
+  const petModelBindings = Object.fromEntries(
+    Object.entries(settings.petModelBindings ?? {}).filter(([, modelId]) => modelIds.has(modelId))
+  );
 
   return {
     ...settings,
     models,
+    petModelBindings,
     activeChatModelId,
     activeAgentModelId,
     api: {
@@ -46,6 +51,25 @@ export function getActiveModelSettings(settings: AppSettings, purpose: ChatModel
   const prepared = ensureModelProfiles(settings);
   const activeId = purpose === "agent" ? prepared.activeAgentModelId : prepared.activeChatModelId;
   return prepared.models.find((model) => model.id === activeId) ?? prepared.models[0];
+}
+
+export function getModelSettingsById(
+  settings: AppSettings,
+  modelId: string | undefined,
+  fallbackPurpose: ChatModelPurpose
+): ModelProfile {
+  const prepared = ensureModelProfiles(settings);
+  return prepared.models.find((model) => model.id === modelId)
+    ?? getActiveModelSettings(prepared, fallbackPurpose);
+}
+
+export function getPetModelSettings(
+  settings: AppSettings,
+  petId: string,
+  fallbackPurpose: ChatModelPurpose
+): ModelProfile {
+  const prepared = ensureModelProfiles(settings);
+  return getModelSettingsById(prepared, prepared.petModelBindings[petId], fallbackPurpose);
 }
 
 export function upsertModelProfile(settings: AppSettings, profile: ModelProfile): AppSettings {

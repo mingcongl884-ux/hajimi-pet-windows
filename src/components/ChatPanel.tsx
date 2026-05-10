@@ -1,5 +1,5 @@
-import { BriefcaseBusiness, MessageCircle, Paperclip, Plus, Send, Trash2, X } from "lucide-react";
-import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { MoreHorizontal, Paperclip, Plus, Send, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import type { ChatMessage } from "../../electron/chatClient";
 import type { PetConversation, PetConversationMode } from "../../electron/settingsStore";
 import { fileToMessageContent } from "../lib/fileMessage";
@@ -8,10 +8,10 @@ type Props = {
   displayName: string;
   conversations: PetConversation[];
   activeConversationId: string;
+  bindingLabel: string;
   messages: ChatMessage[];
   error?: string;
   agentMode: boolean;
-  onToggleAgentMode(enabled: boolean): void | Promise<void>;
   onCreateConversation(mode: PetConversationMode): void | Promise<void>;
   onSwitchConversation(conversationId: string): void | Promise<void>;
   onDeleteConversation(conversationId: string): void | Promise<void>;
@@ -23,10 +23,10 @@ export default function ChatPanel({
   displayName,
   conversations,
   activeConversationId,
+  bindingLabel,
   messages,
   error,
   agentMode,
-  onToggleAgentMode,
   onCreateConversation,
   onSwitchConversation,
   onDeleteConversation,
@@ -34,7 +34,42 @@ export default function ChatPanel({
   onClose
 }: Props) {
   const [draft, setDraft] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const messageList = messageListRef.current;
+    if (messageList) {
+      messageList.scrollTop = messageList.scrollHeight;
+    }
+  }, [messages.length, error]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !menuRef.current?.contains(event.target)) {
+        setMenuOpen(false);
+      }
+    };
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuOpen]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -54,19 +89,47 @@ export default function ChatPanel({
     await onSend(await fileToMessageContent(file));
   }
 
+  function runMenuAction(action: () => void | Promise<void>) {
+    setMenuOpen(false);
+    void action();
+  }
+
   return (
     <section className="chat-panel">
       <header>
-        <strong>{displayName}</strong>
+        <div className="chat-title-block">
+          <strong>{displayName}</strong>
+          <span className="chat-binding-label">{bindingLabel}</span>
+        </div>
         <div className="chat-header-actions">
-          <button
-            className={agentMode ? "chat-mode-toggle active" : "chat-mode-toggle"}
-            title={agentMode ? "切回聊天" : "办公模式"}
-            onClick={() => void onToggleAgentMode(!agentMode)}
-          >
-            {agentMode ? <BriefcaseBusiness size={15} /> : <MessageCircle size={15} />}
-          </button>
-          <button title="关闭" onClick={onClose}>
+          <div className="chat-overflow" ref={menuRef}>
+            <button
+              className="chat-panel-menu-button"
+              type="button"
+              title="更多会话操作"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <MoreHorizontal size={15} />
+            </button>
+            {menuOpen && (
+              <div className="chat-overflow-menu">
+                <button type="button" onClick={() => runMenuAction(() => onCreateConversation("chat"))}>
+                  <Plus size={14} />
+                  <span>新建会话</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={conversations.length <= 1}
+                  onClick={() => runMenuAction(() => onDeleteConversation(activeConversationId))}
+                >
+                  <Trash2 size={14} />
+                  <span>删除会话</span>
+                </button>
+              </div>
+            )}
+          </div>
+          <button title="关闭" type="button" onClick={onClose}>
             <X size={15} />
           </button>
         </div>
@@ -84,22 +147,9 @@ export default function ChatPanel({
             </option>
           ))}
         </select>
-        <button title="新建聊天会话" onClick={() => void onCreateConversation("chat")}>
-          <Plus size={14} />
-        </button>
-        <button title="新建办公会话" onClick={() => void onCreateConversation("agent")}>
-          <BriefcaseBusiness size={14} />
-        </button>
-        <button
-          title="删除当前会话"
-          disabled={conversations.length <= 1}
-          onClick={() => void onDeleteConversation(activeConversationId)}
-        >
-          <Trash2 size={14} />
-        </button>
       </div>
 
-      <div className="message-list">
+      <div className="message-list" ref={messageListRef}>
         {messages.length === 0 && (
           <p className="muted">{agentMode ? "让哈基Mi处理当前办公区里的事。" : "喵？"}</p>
         )}
@@ -122,10 +172,10 @@ export default function ChatPanel({
           placeholder={agentMode ? "例如：看看 README 并帮我改成新版说明" : ""}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <button title="发送文件" type="button" onClick={() => fileInputRef.current?.click()}>
+        <button className="chat-file-button" title="发送文件" type="button" onClick={() => fileInputRef.current?.click()}>
           <Paperclip size={16} />
         </button>
-        <button title="发送" type="submit">
+        <button className="chat-send-button" title="发送" type="submit" disabled={!draft.trim()}>
           <Send size={16} />
         </button>
       </form>

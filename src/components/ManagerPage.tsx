@@ -53,6 +53,7 @@ type Props = {
   onDeleteConversation(conversationId: string): Promise<void>;
   onRenameConversation(conversationId: string, title: string): Promise<void>;
   onSendMessage(content: string): Promise<void>;
+  onSendOfficeMessage(content: string): Promise<void>;
 };
 
 type ManagerSection = "office" | "pets" | "models" | "channels" | "system";
@@ -76,37 +77,8 @@ const providerOptions: Array<{ id: ModelProvider; label: string; description: st
   { id: "claude-agent", label: "Claude Agent SDK", description: "高级办公模式，使用 Claude Code 同源的 Agent SDK 工具循环。" }
 ];
 
-const officeModeOptions: Array<{ id: ModelProvider; label: string; caption: string }> = [
-  { id: "openai-compatible", label: "普通办公", caption: "兼容模型" },
-  { id: "claude-agent", label: "高级办公", caption: "Agent SDK" }
-];
-
 function providerLabel(provider: ModelProvider) {
-  return provider === "claude-agent" ? "高级办公" : "普通办公";
-}
-
-function createDefaultModelProfile(id: string, provider: ModelProvider, index: number): ModelProfile {
-  if (provider === "claude-agent") {
-    return {
-      id,
-      name: `高级办公 ${index}`,
-      provider,
-      baseUrl: "https://api.anthropic.com",
-      apiKey: "",
-      model: "claude-sonnet-4-6",
-      systemPrompt: "You are HaJiMi, a friendly desktop pet office agent."
-    };
-  }
-
-  return {
-    id,
-    name: `普通办公 ${index}`,
-    provider,
-    baseUrl: "https://api.openai.com",
-    apiKey: "",
-    model: "gpt-4.1-mini",
-    systemPrompt: "You are HaJiMi, a friendly desktop pet."
-  };
+  return provider === "claude-agent" ? "Claude Agent SDK" : "OpenAI 兼容";
 }
 
 export default function ManagerPage({
@@ -130,7 +102,7 @@ export default function ManagerPage({
   onSwitchConversation,
   onDeleteConversation,
   onRenameConversation,
-  onSendMessage
+  onSendOfficeMessage
 }: Props) {
   const [section, setSection] = useState<ManagerSection>("office");
   const [settings, setSettings] = useState(ensureProjects(ensureModelProfiles(state.settings)));
@@ -139,8 +111,10 @@ export default function ManagerPage({
   );
   const [saving, setSaving] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string>();
+  const [selectedModelId, setSelectedModelId] = useState(state.settings.activeAgentModelId || state.settings.activeChatModelId);
   const [testMessage, setTestMessage] = useState<string>();
   const [officeDraft, setOfficeDraft] = useState("");
+  const [sendingOfficeMessage, setSendingOfficeMessage] = useState(false);
   const [networkMessage, setNetworkMessage] = useState<string>();
   const [channelMessage, setChannelMessage] = useState<string>();
   const [channelBusyProvider, setChannelBusyProvider] = useState<ChannelProvider>();
@@ -151,9 +125,18 @@ export default function ManagerPage({
   const [renamingTitle, setRenamingTitle] = useState("");
   const [renamingPetId, setRenamingPetId] = useState<string>();
   const [renamingPetName, setRenamingPetName] = useState("");
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const officeFileInputRef = useRef<HTMLInputElement>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setSettings(ensureProjects(ensureModelProfiles(state.settings))), [state.settings]);
+  useEffect(() => {
+    const prepared = ensureModelProfiles(state.settings);
+    if (!prepared.models.some((model) => model.id === selectedModelId)) {
+      setSelectedModelId(prepared.activeAgentModelId || prepared.models[0]?.id);
+    }
+  }, [selectedModelId, state.settings]);
   useEffect(() => {
     setCollapsedProjectIds((projectIds) =>
       projectIds.filter((projectId) =>
@@ -161,6 +144,29 @@ export default function ManagerPage({
       )
     );
   }, [settings.activeProjectId, settings.projects]);
+  useEffect(() => {
+    if (!modelMenuOpen) {
+      return;
+    }
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !modelMenuRef.current?.contains(event.target)) {
+        setModelMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setModelMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [modelMenuOpen]);
 
   async function save(next = settings) {
     setSaving(true);
@@ -339,6 +345,7 @@ export default function ManagerPage({
 
   async function addModel() {
     const id = `model-${Date.now().toString(36)}`;
+    setSelectedModelId(id);
     await update(upsertModelProfile(settings, {
       id,
       name: `模型 ${settings.models.length + 1}`,
@@ -350,32 +357,36 @@ export default function ManagerPage({
     }));
   }
 
-  async function switchOfficeProvider(provider: ModelProvider) {
-    const existing = settings.models.find((model) => model.provider === provider);
-    if (existing) {
-      await updateAgentModel(existing.id);
-      return;
-    }
-
-    const id = `${provider}-${Date.now().toString(36)}`;
-    const model = createDefaultModelProfile(id, provider, settings.models.length + 1);
-    await update(ensureModelProfiles({
-      ...settings,
-      models: [...settings.models, model],
-      activeAgentModelId: id
-    }));
-  }
-
   async function removeModel(modelId: string) {
     if (settings.models.length <= 1) {
       return;
     }
     const models = settings.models.filter((model) => model.id !== modelId);
+    const petModelBindings = Object.fromEntries(
+      Object.entries(settings.petModelBindings ?? {}).filter(([, boundModelId]) => boundModelId !== modelId)
+    );
+    if (selectedModelId === modelId) {
+      setSelectedModelId(models[0].id);
+    }
     await update(ensureModelProfiles({
       ...settings,
       models,
+      petModelBindings,
       activeChatModelId: settings.activeChatModelId === modelId ? models[0].id : settings.activeChatModelId,
       activeAgentModelId: settings.activeAgentModelId === modelId ? models[0].id : settings.activeAgentModelId
+    }));
+  }
+
+  async function updatePetModelBinding(petId: string, modelId: string) {
+    const petModelBindings = { ...(settings.petModelBindings ?? {}) };
+    if (modelId) {
+      petModelBindings[petId] = modelId;
+    } else {
+      delete petModelBindings[petId];
+    }
+    await update(ensureModelProfiles({
+      ...settings,
+      petModelBindings
     }));
   }
 
@@ -534,7 +545,7 @@ export default function ManagerPage({
           <>
             <button className="codex-conversation-main" onClick={() => void switchConversation(conversation.id)}>
               <span>{conversation.title}</span>
-              <small>{conversation.mode === "agent" ? "办公" : "聊天"} · {conversation.messages.length}</small>
+              <small>{conversation.messages.length} 条消息</small>
             </button>
             <div className="codex-conversation-actions">
               <button title="重命名会话" onClick={() => startRenameConversation(conversation.id, conversation.title)}>
@@ -552,11 +563,17 @@ export default function ManagerPage({
 
   async function submitOfficeMessage(event: FormEvent) {
     event.preventDefault();
-    if (!officeDraft.trim()) {
+    const content = officeDraft.trim();
+    if (!content || sendingOfficeMessage) {
       return;
     }
-    await onSendMessage(officeDraft);
     setOfficeDraft("");
+    setSendingOfficeMessage(true);
+    try {
+      await onSendOfficeMessage(content);
+    } finally {
+      setSendingOfficeMessage(false);
+    }
   }
 
   async function sendOfficeFile(event: ChangeEvent<HTMLInputElement>) {
@@ -565,7 +582,7 @@ export default function ManagerPage({
     if (!file) {
       return;
     }
-    await onSendMessage(await fileToMessageContent(file));
+    await onSendOfficeMessage(await fileToMessageContent(file));
   }
 
   const activeConversation =
@@ -579,7 +596,17 @@ export default function ManagerPage({
   const activePermission = permissionOptions.find((option) => option.id === settings.agent.permissionMode)
     ?? permissionOptions[0];
   const activeAgentModel = settings.models.find((model) => model.id === settings.activeAgentModelId) ?? settings.models[0];
-  const activeOfficeProvider = activeAgentModel?.provider ?? "openai-compatible";
+  const activeAgentModelName = activeAgentModel?.name || "默认模型";
+  const openAiCompatibleModels = settings.models.filter((model) => model.provider === "openai-compatible");
+  const claudeAgentModels = settings.models.filter((model) => model.provider === "claude-agent");
+  const selectedModel = settings.models.find((model) => model.id === selectedModelId) ?? settings.models[0];
+
+  useEffect(() => {
+    const messageList = messageListRef.current;
+    if (messageList) {
+      messageList.scrollTop = messageList.scrollHeight;
+    }
+  }, [activeConversation?.id, messages.length, chatError]);
 
   return (
     <main className="manager-app-shell">
@@ -602,7 +629,7 @@ export default function ManagerPage({
                     <FolderOpen size={15} />
                     <span>{projectName}</span>
                   </button>
-                  <button className="codex-project-new-conversation" title="新建办公会话" onClick={() => void onCreateConversation("agent")}>
+                  <button className="codex-project-new-conversation" title="新建会话" onClick={() => void onCreateConversation("chat")}>
                     <Plus size={13} />
                   </button>
                 </div>
@@ -634,8 +661,8 @@ export default function ManagerPage({
                     {active && (
                       <button
                         className="codex-project-new-conversation"
-                        title="新建办公会话"
-                        onClick={() => void onCreateConversation("agent")}
+                        title="新建会话"
+                        onClick={() => void onCreateConversation("chat")}
                       >
                         <Plus size={13} />
                       </button>
@@ -680,32 +707,11 @@ export default function ManagerPage({
 
       {section === "office" && (
         <section className="codex-chat-main">
-          <header className="office-mode-header">
-            <div>
-              <span>办公模式</span>
-              <strong>{officeModeOptions.find((option) => option.id === activeOfficeProvider)?.label}</strong>
-            </div>
-            <div className="office-mode-switch" role="group" aria-label="办公模式">
-              {officeModeOptions.map((option) => (
-                <button
-                  type="button"
-                  className={activeOfficeProvider === option.id ? "active" : ""}
-                  key={option.id}
-                  title={providerOptions.find((provider) => provider.id === option.id)?.description}
-                  onClick={() => void switchOfficeProvider(option.id)}
-                >
-                  <span>{option.label}</span>
-                  <small>{option.caption}</small>
-                </button>
-              ))}
-            </div>
-          </header>
-
-          <div className="codex-message-scroll">
+          <div className="codex-message-scroll" ref={messageListRef}>
             {messages.length === 0 && (
               <div className="codex-empty-state">
                 <Bot size={40} />
-                <p>让哈基Mi处理当前项目里的事。</p>
+                <p>{activeAgentModel?.provider === "claude-agent" ? "让哈基Mi处理当前项目里的事。" : "和哈基Mi聊聊当前项目。"}</p>
               </div>
             )}
             {messages.map((message, index) => (
@@ -723,7 +729,8 @@ export default function ManagerPage({
           <form className="codex-composer" onSubmit={submitOfficeMessage}>
             <input
               value={officeDraft}
-              placeholder="要求后续变更"
+              disabled={sendingOfficeMessage}
+              placeholder={sendingOfficeMessage ? "发送中..." : activeAgentModel?.provider === "claude-agent" ? "要求后续变更" : "和哈基Mi聊聊当前项目"}
               onChange={(event) => setOfficeDraft(event.target.value)}
             />
             <div className="codex-composer-toolbar">
@@ -739,24 +746,68 @@ export default function ManagerPage({
               <select
                 className="composer-permission-select"
                 value={settings.agent.permissionMode}
-                title={activePermission.description}
+                title={activeAgentModel?.provider === "claude-agent" ? activePermission.description : "选择 Claude Agent SDK 模型时生效"}
+                disabled={activeAgentModel?.provider !== "claude-agent"}
                 onChange={(event) => void updatePermissionMode(event.target.value as AgentPermissionMode)}
               >
                 {permissionOptions.map((option) => (
                   <option key={option.id} value={option.id}>{option.label}</option>
                 ))}
               </select>
-              <select
-                className="composer-model-select"
-                value={settings.activeAgentModelId}
-                onChange={(event) => void updateAgentModel(event.target.value)}
-              >
-                {settings.models.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name} · {providerLabel(model.provider)}
-                  </option>
-                ))}
-              </select>
+              <div className="composer-model-picker" ref={modelMenuRef}>
+                <button
+                  className="composer-model-select"
+                  type="button"
+                  title={activeAgentModel ? `当前模型：${activeAgentModel.name} · ${providerLabel(activeAgentModel.provider)}` : "选择模型"}
+                  aria-expanded={modelMenuOpen}
+                  onClick={() => setModelMenuOpen((open) => !open)}
+                >
+                  <span>{activeAgentModelName}</span>
+                  <ChevronDown size={13} />
+                </button>
+                {modelMenuOpen && (
+                  <div className="composer-model-menu">
+                    {openAiCompatibleModels.length > 0 && (
+                      <div className="composer-model-group">
+                        <span>OpenAI 兼容</span>
+                        {openAiCompatibleModels.map((model) => (
+                          <button
+                            className={model.id === settings.activeAgentModelId ? "active" : ""}
+                            key={model.id}
+                            type="button"
+                            onClick={() => {
+                              setModelMenuOpen(false);
+                              void updateAgentModel(model.id);
+                            }}
+                          >
+                            <span>{model.name}</span>
+                            {model.id === settings.activeAgentModelId && <Check size={13} />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {claudeAgentModels.length > 0 && (
+                      <div className="composer-model-group">
+                        <span>Claude Agent SDK</span>
+                        {claudeAgentModels.map((model) => (
+                          <button
+                            className={model.id === settings.activeAgentModelId ? "active" : ""}
+                            key={model.id}
+                            type="button"
+                            onClick={() => {
+                              setModelMenuOpen(false);
+                              void updateAgentModel(model.id);
+                            }}
+                          >
+                            <span>{model.name}</span>
+                            {model.id === settings.activeAgentModelId && <Check size={13} />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 title="删除当前会话"
@@ -765,7 +816,12 @@ export default function ManagerPage({
               >
                 <Trash2 size={16} />
               </button>
-              <button className="codex-send-button" title="发送" type="submit">
+              <button
+                className="codex-send-button"
+                title={sendingOfficeMessage ? "发送中" : "发送"}
+                type="submit"
+                disabled={sendingOfficeMessage || !officeDraft.trim()}
+              >
                 <Send size={17} />
               </button>
             </div>
@@ -803,6 +859,21 @@ export default function ManagerPage({
                         <strong>{pet.displayName}</strong>
                         <span>{active ? "已启用" : pet.id}</span>
                       </button>
+                      <label className="pet-brain-binding">
+                        <span>大脑模型</span>
+                        <select
+                          className="pet-model-select"
+                          value={settings.petModelBindings?.[pet.id] ?? ""}
+                          onChange={(event) => void updatePetModelBinding(pet.id, event.target.value)}
+                        >
+                          <option value="">跟随当前会话</option>
+                          {settings.models.map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       {!builtinPet && renamingPetId === pet.id ? (
                         <form
                           className="pet-rename-form"
@@ -904,21 +975,43 @@ export default function ManagerPage({
               <h1>模型配置</h1>
             </div>
           </header>
-          <div className="model-list">
-            {settings.models.map((model) => (
-              <div className="model-card" key={model.id}>
+          <div className="model-manager-layout">
+            <aside className="model-index-panel">
+              <div className="model-index-heading">
+                <span>模型列表</span>
+                <button title="新增模型" onClick={() => void addModel()}>
+                  <Plus size={15} />
+                </button>
+              </div>
+              <div className="model-index-list">
+                {settings.models.map((model) => (
+                  <button
+                    className={model.id === selectedModel?.id ? "model-index-row active" : "model-index-row"}
+                    key={model.id}
+                    onClick={() => setSelectedModelId(model.id)}
+                  >
+                    <strong>{model.name}</strong>
+                    <span>{providerLabel(model.provider)} · {model.model || "未填写模型"}</span>
+                    <small>{model.baseUrl || "未填写网关"}</small>
+                  </button>
+                ))}
+              </div>
+            </aside>
+
+            {selectedModel && (
+              <div className="model-detail-card">
                 <div className="model-card-title">
-                  <input value={model.name} onChange={(event) => updateModel(model.id, { name: event.target.value })} />
-                  <button title="删除模型" disabled={settings.models.length <= 1} onClick={() => void removeModel(model.id)}>
+                  <input value={selectedModel.name} onChange={(event) => updateModel(selectedModel.id, { name: event.target.value })} />
+                  <button title="删除模型" disabled={settings.models.length <= 1} onClick={() => void removeModel(selectedModel.id)}>
                     <Trash2 size={15} />
                   </button>
                 </div>
                 <label>
                   提供方
                   <select
-                    value={model.provider}
-                    title={providerOptions.find((option) => option.id === model.provider)?.description}
-                    onChange={(event) => updateModelProvider(model, event.target.value as ModelProvider)}
+                    value={selectedModel.provider}
+                    title={providerOptions.find((option) => option.id === selectedModel.provider)?.description}
+                    onChange={(event) => updateModelProvider(selectedModel, event.target.value as ModelProvider)}
                   >
                     {providerOptions.map((option) => (
                       <option key={option.id} value={option.id}>{option.label}</option>
@@ -927,37 +1020,33 @@ export default function ManagerPage({
                 </label>
                 <label>
                   API Base URL / 网关 URL
-                  <input value={model.baseUrl} onChange={(event) => updateModel(model.id, { baseUrl: event.target.value })} />
+                  <input value={selectedModel.baseUrl} onChange={(event) => updateModel(selectedModel.id, { baseUrl: event.target.value })} />
                 </label>
                 <label>
                   API Key
                   <input
                     type="password"
-                    value={model.apiKey}
-                    onChange={(event) => updateModel(model.id, { apiKey: event.target.value })}
+                    value={selectedModel.apiKey}
+                    onChange={(event) => updateModel(selectedModel.id, { apiKey: event.target.value })}
                   />
                 </label>
                 <label>
                   Model
-                  <input value={model.model} onChange={(event) => updateModel(model.id, { model: event.target.value })} />
+                  <input value={selectedModel.model} onChange={(event) => updateModel(selectedModel.id, { model: event.target.value })} />
                 </label>
                 <label>
                   System Prompt
-                  <textarea value={model.systemPrompt} onChange={(event) => updateModel(model.id, { systemPrompt: event.target.value })} />
+                  <textarea value={selectedModel.systemPrompt} onChange={(event) => updateModel(selectedModel.id, { systemPrompt: event.target.value })} />
                 </label>
                 <div className="model-actions">
-                  <button className="secondary-command" onClick={() => void saveModel(model)}>保存</button>
-                  <button className="secondary-command" onClick={() => void testModel(model)}>
-                    {testingModelId === model.id ? "测试中" : "测试连接"}
+                  <button className="secondary-command" onClick={() => void saveModel(selectedModel)}>保存</button>
+                  <button className="secondary-command" onClick={() => void testModel(selectedModel)}>
+                    {testingModelId === selectedModel.id ? "测试中" : "测试连接"}
                   </button>
                 </div>
               </div>
-            ))}
+            )}
           </div>
-          <button className="secondary-command model-add" onClick={() => void addModel()}>
-            <Plus size={16} />
-            新增模型
-          </button>
           {testMessage && <p className="save-state">{testMessage}</p>}
         </section>
       )}

@@ -1,10 +1,14 @@
 import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, GITHUB_NOTICE_FEED_URL, GITHUB_UPDATE_FEED_URL, SettingsStore } from "../electron/settingsStore";
 
 describe("SettingsStore", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("encrypts API keys when safe storage is available", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pet-settings-"));
     const safeStorage = {
@@ -169,5 +173,22 @@ describe("SettingsStore", () => {
     expect(loaded.activePetId).toBe("xiaomi");
     expect(JSON.parse(await readFile(join(dir, "settings.json"), "utf8")).activePetId).toBe("xiaomi");
     expect((await readdir(dir)).some((name) => name.includes(".corrupt-"))).toBe(true);
+  });
+
+  it("serializes concurrent saves so the settings file stays valid", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pet-settings-"));
+    const store = new SettingsStore(dir);
+    vi.spyOn(Date, "now").mockReturnValue(1777);
+
+    await Promise.all(Array.from({ length: 12 }, (_, index) =>
+      store.saveSettings({
+        ...DEFAULT_SETTINGS,
+        windowPosition: { x: index, y: index * 2 }
+      })
+    ));
+
+    const parsed = JSON.parse(await readFile(join(dir, "settings.json"), "utf8"));
+    expect(parsed.windowPosition).toEqual({ x: 11, y: 22 });
+    expect(await store.loadSettings()).toMatchObject({ windowPosition: { x: 11, y: 22 } });
   });
 });

@@ -59,7 +59,9 @@ export async function testChannelAdapter(channel: ChannelSettings): Promise<Chan
     return {
       provider: channel.provider,
       status: "error",
-      message: "没有检测到 openclaw CLI。请先安装 OpenClaw，并确保 openclaw 在 PATH 中。",
+      message: version.usedBundled
+        ? "已找到内置 OpenClaw，但启动失败。请重新打开哈基Mi后再试，或查看输出。"
+        : "没有检测到内置或系统 OpenClaw。请重新安装哈基Mi，或确认 openclaw 在 PATH 中。",
       output: version.output
     };
   }
@@ -165,28 +167,45 @@ async function ensureBundledOpenClawShim(): Promise<string> {
 }
 
 function resolveBundledOpenClawCli(): string | undefined {
-  try {
-    return normalizeAsarUnpackedPath(require.resolve("openclaw/openclaw.mjs"));
-  } catch {
-    return undefined;
-  }
+  return findFirstExistingPath(
+    resolveBundledNodeModulesRoots().map((root) => join(root, "openclaw", "openclaw.mjs"))
+  ) ?? resolvePackagePath("openclaw/openclaw.mjs");
 }
 
 function resolveBundledPackageRoot(packageJsonPath: string): string | undefined {
+  return resolveBundledPackageRootFromNodeModules(packageJsonPath) ?? resolvePackageRoot(packageJsonPath);
+}
+
+function resolveBundledPackageRootFromNodeModules(packageJsonPath: string): string | undefined {
+  const parts = packageJsonPath.split("/");
+  if (parts.at(-1) !== "package.json") {
+    return undefined;
+  }
+
+  const packageParts = parts.slice(0, -1);
+  const packageJson = findFirstExistingPath(
+    resolveBundledNodeModulesRoots().map((root) => join(root, ...packageParts, "package.json"))
+  );
+  return packageJson ? dirname(packageJson) : undefined;
+}
+
+function resolvePackageRoot(packageJsonPath: string): string | undefined {
+  const packageJson = resolvePackagePath(packageJsonPath);
+  return packageJson ? dirname(packageJson) : undefined;
+}
+
+function resolvePackagePath(packagePath: string): string | undefined {
   try {
-    return normalizeAsarUnpackedPath(dirname(require.resolve(packageJsonPath)));
+    return normalizeAsarUnpackedPath(require.resolve(packagePath));
   } catch {
     return undefined;
   }
 }
 
 function resolveBundledOpenClawPackageRoot(): string | undefined {
-  try {
-    return normalizeAsarUnpackedPath(dirname(require.resolve("openclaw/package.json")));
-  } catch {
-    const cliPath = resolveBundledOpenClawCli();
-    return cliPath ? dirname(cliPath) : undefined;
-  }
+  const packageRoot = resolveBundledPackageRoot("openclaw/package.json");
+  const cliPath = resolveBundledOpenClawCli();
+  return packageRoot ?? (cliPath ? dirname(cliPath) : undefined);
 }
 
 function resolveNodeRuntime(): string {
@@ -194,14 +213,16 @@ function resolveNodeRuntime(): string {
 }
 
 function resolveBundledNodeRuntime(): string | undefined {
-  try {
-    const nodeRoot = dirname(require.resolve("node/package.json"));
+  const nodeRoot = resolveBundledPackageRoot("node/package.json");
+  if (nodeRoot) {
     const executableName = process.platform === "win32" ? "node.exe" : "node";
     const candidate = normalizeAsarUnpackedPath(join(nodeRoot, "bin", executableName));
     if (existsSync(candidate)) {
       return candidate;
     }
+  }
 
+  try {
     const packageBin = normalizeAsarUnpackedPath(require.resolve("node/bin/node"));
     const packageBinCandidate = process.platform === "win32" ? `${packageBin}.exe` : packageBin;
     if (existsSync(packageBinCandidate)) {
@@ -214,17 +235,37 @@ function resolveBundledNodeRuntime(): string | undefined {
   return undefined;
 }
 
+function resolveBundledNodeModulesRoots(): string[] {
+  const roots: string[] = [];
+  // process.resourcesPath points to the packaged Electron resources directory.
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  if (resourcesPath) {
+    roots.push(join(resourcesPath, "app.asar.unpacked", "node_modules"));
+  }
+
+  const appPath = app.getAppPath();
+  roots.push(join(normalizeAsarUnpackedPath(appPath), "node_modules"));
+  roots.push(join(appPath, "node_modules"));
+  roots.push(join(process.cwd(), "node_modules"));
+  return [...new Set(roots)];
+}
+
+function findFirstExistingPath(paths: string[]): string | undefined {
+  return paths.find((candidate) => existsSync(candidate));
+}
+
 function normalizeAsarUnpackedPath(value: string): string {
-  return value.replace(/\.asar([\\/])/, ".asar.unpacked$1");
+  return value.replace(/\.asar(?=([\\/]|$))/, ".asar.unpacked");
 }
 
 function quotePowerShellString(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function runOpenClaw(args: string[], timeoutMs: number): Promise<{ code: number | null; output: string }> {
+function runOpenClaw(args: string[], timeoutMs: number): Promise<{ code: number | null; output: string; usedBundled: boolean }> {
   return new Promise((resolve) => {
     const bundledCli = resolveBundledOpenClawCli();
+    const usedBundled = Boolean(bundledCli);
     const child = spawn(bundledCli ? resolveNodeRuntime() : "openclaw", bundledCli ? [bundledCli, ...args] : args, {
       env: {
         ...process.env,
@@ -235,7 +276,7 @@ function runOpenClaw(args: string[], timeoutMs: number): Promise<{ code: number 
     let output = "";
     const timeout = setTimeout(() => {
       child.kill();
-      resolve({ code: null, output: `${output}\nCommand timed out.`.trim() });
+      resolve({ code: null, output: `${output}\nCommand timed out.`.trim(), usedBundled });
     }, timeoutMs);
     child.stdout.on("data", (chunk) => {
       output += String(chunk);
@@ -245,11 +286,11 @@ function runOpenClaw(args: string[], timeoutMs: number): Promise<{ code: number 
     });
     child.on("error", (error) => {
       clearTimeout(timeout);
-      resolve({ code: null, output: error.message });
+      resolve({ code: null, output: error.message, usedBundled });
     });
     child.on("close", (code) => {
       clearTimeout(timeout);
-      resolve({ code, output: output.trim() });
+      resolve({ code, output: output.trim(), usedBundled });
     });
   });
 }

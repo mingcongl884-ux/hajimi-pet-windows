@@ -27,24 +27,27 @@ import {
   markNoticeRead
 } from "./networkClient.js";
 import { importPetBundle } from "./petImporter.js";
-import { SettingsStore, type AppSettings, type ModelProfile } from "./settingsStore.js";
-import { getActiveModelSettings } from "../src/lib/modelProfiles.js";
+import { DEFAULT_SETTINGS, SettingsStore, type AppSettings, type ModelProfile } from "./settingsStore.js";
+import { getActiveModelSettings, getModelSettingsById } from "../src/lib/modelProfiles.js";
+import type { PetMoveCommand } from "../src/lib/petMotion.js";
 import { planPetPlayStep } from "../src/lib/petPlay.js";
 import type { InstalledPet, PetManifest } from "../src/lib/petTypes.js";
+import { PET_WINDOW_SIZE, clampPetWindowPosition, getPetVisibleRect } from "../src/lib/petWindowGeometry.js";
 import { removeProject, switchProject, upsertProject } from "../src/lib/projects.js";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
-const PET_WINDOW_SIZE = { width: 620, height: 520 };
 const PET_ASSET_PROTOCOL = "pet-asset";
 
 const petWindows = new Map<number, BrowserWindow>();
+const petChatOpen = new Map<number, boolean>();
 let managerWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let settingsStore: SettingsStore;
-let lastPositionSave = 0;
+const lastPositionSaveBySlot = new Map<number, number>();
 let isQuitting = false;
 let petPlayInterval: NodeJS.Timeout | undefined;
 let petPlayTick = 0;
+let currentPetScale = DEFAULT_SETTINGS.petScale;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -58,6 +61,7 @@ async function createWindows() {
   await ensureBundledPet();
   registerPetAssetProtocol();
   const settings = await settingsStore.loadSettings();
+  currentPetScale = settings.petScale;
   await reconcilePetWindows(settings);
   await createManagerWindow();
   createTray();
@@ -66,7 +70,8 @@ async function createWindows() {
 
 async function createPetWindow(slot: number, settings: AppSettings) {
   const position = clampWindowPosition(
-    settings.petWindowPositions?.[String(slot)] ?? settings.windowPosition ?? defaultWindowPosition(slot)
+    settings.petWindowPositions?.[String(slot)] ?? settings.windowPosition ?? defaultWindowPosition(slot, settings.petScale),
+    settings.petScale
   );
 
   const petWindow = new BrowserWindow({
@@ -88,6 +93,13 @@ async function createPetWindow(slot: number, settings: AppSettings) {
     }
   });
   attachWindowLogging(petWindow, "pet");
+  petWindow.on("blur", () => {
+    petWindow.webContents.send("pet:outside-interaction");
+  });
+  petWindow.on("closed", () => {
+    petWindows.delete(slot);
+    petChatOpen.delete(slot);
+  });
 
   petWindow.setAlwaysOnTop(true, "screen-saver");
   petWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -216,10 +228,11 @@ function registerIpc() {
   ipcMain.handle("pet:delete", async (_event, petId: string) => deleteImportedPet(petId));
   ipcMain.handle("pet:switch", async (_event, petId: string) => {
     const settings = await settingsStore.loadSettings();
-    await settingsStore.saveSettings({ ...settings, activePetId: petId });
+    await settingsStore.saveSettings({ ...settings, activePetId: petId, activePetIds: [petId] });
     return broadcastState();
   });
   ipcMain.handle("pet:save-settings", async (_event, settings: AppSettings) => {
+    currentPetScale = settings.petScale;
     await settingsStore.saveSettings(settings);
     refreshTray();
     return broadcastState();
@@ -257,13 +270,13 @@ function registerIpc() {
     await broadcastState();
     return result;
   });
-  ipcMain.handle("pet:send-chat", async (_event, messages: ChatMessage[]) => {
+  ipcMain.handle("pet:send-chat", async (_event, messages: ChatMessage[], modelId?: string) => {
     const settings = await settingsStore.loadSettings();
-    return sendChatMessage(fetch, getActiveModelSettings(settings, "chat"), messages);
+    return sendChatMessage(fetch, getModelSettingsById(settings, modelId, "chat"), messages);
   });
-  ipcMain.handle("pet:run-agent-task", async (_event, task: string) => {
+  ipcMain.handle("pet:run-agent-task", async (_event, task: string, modelId?: string) => {
     const settings = await settingsStore.loadSettings();
-    const model = getActiveModelSettings(settings, "agent");
+    const model = getModelSettingsById(settings, modelId, "agent");
     return model.provider === "claude-agent"
       ? runClaudeAgentTask(model, settings.agent, task)
       : runAgentTask(fetch, model, settings.agent, task);
@@ -327,9 +340,19 @@ function registerIpc() {
   ipcMain.handle("pet:set-window-bounds", async (_event, slot: number, bounds: { x: number; y: number }) => {
     setPetWindowPosition(slot, bounds.x, bounds.y);
   });
+  ipcMain.handle("pet:get-window-bounds", (_event, slot: number) =>
+    petWindows.get(slot)?.getBounds() ?? { ...defaultWindowPosition(slot), ...PET_WINDOW_SIZE }
+  );
+  ipcMain.handle("pet:move-pet-to", async (_event, slot: number, command: PetMoveCommand) => {
+    petWindows.get(slot)?.webContents.send("pet:play-command", { ...command, slot });
+  });
+  ipcMain.handle("pet:set-chat-open", (_event, slot: number, open: boolean) => {
+    petChatOpen.set(slot, open);
+  });
   ipcMain.handle("pet:set-mouse-passthrough", (_event, slot: number, passthrough: boolean) => {
     petWindows.get(slot)?.setIgnoreMouseEvents(passthrough, { forward: true });
   });
+  ipcMain.handle("pet:get-cursor-screen-point", () => screen.getCursorScreenPoint());
 }
 
 async function deleteImportedPet(petId: string) {
@@ -347,10 +370,12 @@ async function deleteImportedPet(petId: string) {
   const activePetIds = (settings.activePetIds?.length ? settings.activePetIds : [settings.activePetId])
     .filter((id) => id !== petId);
   const { [petId]: _deletedName, ...petDisplayNames } = settings.petDisplayNames ?? {};
+  const { [petId]: _deletedModel, ...petModelBindings } = settings.petModelBindings ?? {};
   await settingsStore.saveSettings({
     ...settings,
     activePetId: activePetIds[0] ?? "xiaomi",
     activePetIds: activePetIds.length ? activePetIds : ["xiaomi"],
+    petModelBindings,
     petDisplayNames
   });
 
@@ -373,7 +398,7 @@ async function importPetFromDialog() {
 
   const imported = await importPetBundle(result.filePaths[0], petsDir(), true);
   const settings = await settingsStore.loadSettings();
-  await settingsStore.saveSettings({ ...settings, activePetId: imported.petId });
+  await settingsStore.saveSettings({ ...settings, activePetId: imported.petId, activePetIds: [imported.petId] });
   return broadcastState();
 }
 
@@ -426,6 +451,8 @@ async function getAppStateForSlot(slot: number) {
       .map((petId) => pets.find((pet) => pet.id === petId))
       .filter(Boolean),
     screen: {
+      x: display.x,
+      y: display.y,
       width: display.width,
       height: display.height
     },
@@ -435,6 +462,7 @@ async function getAppStateForSlot(slot: number) {
 
 async function broadcastState() {
   const state = await getAppState();
+  currentPetScale = state.settings.petScale;
   for (const [slot, window] of petWindows) {
     window.webContents.send("pet:state-changed", await getAppStateForSlot(slot));
   }
@@ -444,22 +472,25 @@ async function broadcastState() {
 }
 
 function setPetWindowPosition(slot: number, x: number, y: number) {
-  const position = clampWindowPosition({ x, y });
+  const position = clampWindowPosition({ x, y }, currentPetScale);
   petWindows.get(slot)?.setBounds({ x: position.x, y: position.y, ...PET_WINDOW_SIZE }, false);
 
   const now = Date.now();
+  const lastPositionSave = lastPositionSaveBySlot.get(slot) ?? 0;
   if (now - lastPositionSave > 2000) {
-    lastPositionSave = now;
-    void settingsStore.loadSettings().then((settings) =>
-      settingsStore.saveSettings({
+    lastPositionSaveBySlot.set(slot, now);
+    void settingsStore.loadSettings()
+      .then((settings) => settingsStore.saveSettings({
         ...settings,
         windowPosition: slot === 0 ? position : settings.windowPosition,
         petWindowPositions: {
           ...settings.petWindowPositions,
           [String(slot)]: position
         }
-      })
-    );
+      }))
+      .catch((error) => {
+        void writeRuntimeLog(`save pet position failed slot=${slot} ${error instanceof Error ? error.message : String(error)}`);
+      });
   }
 }
 
@@ -520,15 +551,25 @@ async function broadcastPetPlayCommands() {
   const commands = planPetPlayStep({
     enabled: settings.playTogetherEnabled,
     movementEnabled: settings.movementEnabled,
-    chatOpen: false,
+    chatOpen: isAnyPetChatOpen(activePetIds.length),
     bounds,
-    screen: { width: display.width, height: display.height },
+    screen: { x: display.x, y: display.y, width: display.width, height: display.height },
+    petScale: settings.petScale,
     tick: petPlayTick += 1
   });
 
   for (const command of commands) {
     petWindows.get(command.slot)?.webContents.send("pet:play-command", command);
   }
+}
+
+function isAnyPetChatOpen(activePetCount: number) {
+  for (let slot = 0; slot < activePetCount; slot += 1) {
+    if (petChatOpen.get(slot)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function ensureBundledPet() {
@@ -614,20 +655,23 @@ function primaryPetWindow() {
   return petWindows.get(0) ?? [...petWindows.values()][0];
 }
 
-function defaultWindowPosition(slot = 0) {
+function defaultWindowPosition(slot = 0, petScale = currentPetScale) {
   const display = screen.getPrimaryDisplay().workArea;
+  const visible = getPetVisibleRect(petScale);
   return {
-    x: display.x + display.width - PET_WINDOW_SIZE.width - 40 - slot * 220,
-    y: display.y + display.height - PET_WINDOW_SIZE.height - 40
+    x: display.x + display.width - visible.right - 40 - slot * 220,
+    y: display.y + display.height - visible.bottom - 40
   };
 }
 
-function clampWindowPosition(position: { x: number; y: number }) {
+function clampWindowPosition(position: { x: number; y: number }, petScale = currentPetScale) {
   const display = screen.getPrimaryDisplay().workArea;
-  return {
-    x: Math.min(Math.max(display.x, Math.round(position.x)), display.x + display.width - PET_WINDOW_SIZE.width),
-    y: Math.min(Math.max(display.y, Math.round(position.y)), display.y + display.height - PET_WINDOW_SIZE.height)
-  };
+  return clampPetWindowPosition(
+    position,
+    { x: display.x, y: display.y, width: display.width, height: display.height },
+    PET_WINDOW_SIZE,
+    petScale
+  );
 }
 
 function assetsDir() {

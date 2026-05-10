@@ -1,4 +1,4 @@
-import { mkdir, rename, readFile, writeFile } from "node:fs/promises";
+import { mkdir, rename, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ChatMessage } from "./chatClient.js";
 import type { ChannelSettings } from "../src/lib/channels.js";
@@ -78,6 +78,7 @@ export type PetConversation = {
 export type AppSettings = {
   activePetId: string;
   activePetIds: string[];
+  petModelBindings: Record<string, string>;
   petDisplayNames: Record<string, string>;
   petScale: number;
   windowPosition?: {
@@ -131,6 +132,7 @@ type StoredSettings = Omit<AppSettings, "api" | "models"> & {
 export const DEFAULT_SETTINGS: AppSettings = {
   activePetId: "xiaomi",
   activePetIds: ["xiaomi"],
+  petModelBindings: {},
   petDisplayNames: {},
   petScale: 0.5,
   movementEnabled: true,
@@ -190,6 +192,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 export class SettingsStore {
   private readonly filePath: string;
+  private saveQueue: Promise<void> = Promise.resolve();
+  private tempCounter = 0;
 
   constructor(
     private readonly userDataDir: string,
@@ -221,11 +225,22 @@ export class SettingsStore {
   }
 
   async saveSettings(settings: AppSettings): Promise<void> {
+    const pendingSave = this.saveQueue.then(() => this.writeSettingsFile(settings));
+    this.saveQueue = pendingSave.catch(() => undefined);
+    return pendingSave;
+  }
+
+  private async writeSettingsFile(settings: AppSettings): Promise<void> {
     await mkdir(this.userDataDir, { recursive: true });
     const stored = this.dehydrate(settings);
-    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
+    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${this.tempCounter += 1}.tmp`;
     await writeFile(tempPath, `${JSON.stringify(stored, null, 2)}\n`, "utf8");
-    await rename(tempPath, this.filePath);
+    try {
+      await replaceFileWithRetry(tempPath, this.filePath);
+    } catch (error) {
+      await rm(tempPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 
   private async recoverCorruptSettings(raw: string): Promise<StoredSettings> {
@@ -253,6 +268,7 @@ export class SettingsStore {
       api: { ...DEFAULT_SETTINGS.api },
       models: DEFAULT_SETTINGS.models.map((model) => ({ ...model })),
       activePetIds: [...DEFAULT_SETTINGS.activePetIds],
+      petModelBindings: { ...DEFAULT_SETTINGS.petModelBindings },
       petDisplayNames: { ...DEFAULT_SETTINGS.petDisplayNames },
       agent: { ...DEFAULT_SETTINGS.agent },
       activeProjectId: DEFAULT_SETTINGS.activeProjectId,
@@ -274,6 +290,7 @@ export class SettingsStore {
       ...DEFAULT_SETTINGS,
       ...stored,
       activePetIds: stored.activePetIds?.length ? stored.activePetIds.slice(0, 2) : [stored.activePetId || "xiaomi"],
+      petModelBindings: stored.petModelBindings ?? {},
       petDisplayNames: stored.petDisplayNames ?? {},
       api: {
         ...DEFAULT_SETTINGS.api,
@@ -431,4 +448,28 @@ function readFirstJsonDocument(raw: string): string | undefined {
   }
 
   return undefined;
+}
+
+async function replaceFileWithRetry(tempPath: string, targetPath: string): Promise<void> {
+  const maxAttempts = 6;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      await rename(tempPath, targetPath);
+      return;
+    } catch (error) {
+      if (!isRetryableReplaceError(error) || attempt === maxAttempts - 1) {
+        throw error;
+      }
+      await delay(35 * (attempt + 1));
+    }
+  }
+}
+
+function isRetryableReplaceError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EPERM" || code === "EBUSY" || code === "EACCES";
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

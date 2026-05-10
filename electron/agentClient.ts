@@ -2,8 +2,10 @@ import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import { spawn } from "node:child_process";
 import type { ChatApiSettings, ChatResponse } from "./chatClient.js";
+import { buildOpenAIChatCompletionsEndpoint } from "./chatClient.js";
 import { ChatClientError } from "./chatClient.js";
 import type { AgentSettings } from "./settingsStore.js";
+import { readPetAction, type PetAction } from "../src/lib/petActions.js";
 
 export type CommandPolicy = {
   enabled: boolean;
@@ -53,9 +55,10 @@ export async function runAgentTask(
     { role: "system", content: buildAgentPrompt(api.systemPrompt, agent) },
     { role: "user", content: task }
   ];
+  const petActions: PetAction[] = [];
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
-    const response = await fetchImpl(buildEndpoint(api.baseUrl), {
+    const response = await fetchImpl(buildOpenAIChatCompletionsEndpoint(api.baseUrl), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${api.apiKey}`,
@@ -65,7 +68,7 @@ export async function runAgentTask(
         model: api.model,
         messages,
         tools: AGENT_TOOLS,
-        tool_choice: "auto"
+        tool_choice: step === 0 ? "required" : "auto"
       })
     });
 
@@ -84,11 +87,19 @@ export async function runAgentTask(
 
     messages.push(message);
     if (!message.tool_calls?.length) {
-      return { role: "assistant", content: message.content || "Done." };
+      return {
+        role: "assistant",
+        content: message.content || (petActions.length ? "好的。" : "Done."),
+        petActions: petActions.length ? petActions : undefined
+      };
     }
 
     for (const toolCall of message.tool_calls) {
-      const result = await executeToolCall(agent, toolCall);
+      const petAction = readPetToolCall(toolCall);
+      if (petAction) {
+        petActions.push(petAction);
+      }
+      const result = petAction ? "Pet action accepted." : await executeToolCall(agent, toolCall);
       messages.push({
         role: "tool",
         tool_call_id: toolCall.id,
@@ -99,7 +110,8 @@ export async function runAgentTask(
 
   return {
     role: "assistant",
-    content: "I reached the step limit. I stopped before doing more work."
+    content: petActions.length ? "我已经执行了宠物动作。" : "I reached the step limit. I stopped before doing more work.",
+    petActions: petActions.length ? petActions : undefined
   };
 }
 
@@ -255,26 +267,27 @@ function parseToolArguments(raw: string): Record<string, unknown> {
   }
 }
 
+function readPetToolCall(toolCall: ToolCall): PetAction | undefined {
+  if (toolCall.function.name !== "control_pet") {
+    return undefined;
+  }
+  return readPetAction(parseToolArguments(toolCall.function.arguments));
+}
+
 function buildAgentPrompt(systemPrompt: string, agent: AgentSettings): string {
   return [
     systemPrompt.trim() || "You are HaJiMi, a friendly desktop pet.",
     "You can help the user do real computer work by using tools, similar to a coding agent.",
     `Workspace: ${agent.workspaceDir}`,
     `Permission mode: ${agent.permissionMode ?? (agent.allowCommands ? "auto-review" : "default")}`,
+    "You are not only a text assistant: you have a visible desktop pet body controlled by control_pet. Treat movement requests as requests for your own body.",
+    "If the user asks you to jump, move, run, change mood, speak as a bubble, go to a screen edge/corner, play by yourself, review work, wait for a result, or calm down, use control_pet instead of saying you cannot control the GUI.",
+    "Use mood=review while reading files or thinking about a work task, mood=waiting while waiting for tool output or a user reply, mood=working for focused office flow, and mood=failed when blocked.",
     "Keep file paths relative to the workspace.",
     "For code or file tasks: inspect relevant files first, make focused edits, run a suitable verification command when available, then summarize the outcome.",
     "Prefer search_files before guessing where code lives. Prefer read_file before write_file.",
     "Explain what you changed or what command output means. Do not claim work is done unless a tool result supports it."
   ].join("\n");
-}
-
-function buildEndpoint(baseUrl: string): string {
-  try {
-    const trimmed = baseUrl.trim().replace(/\/+$/, "");
-    return new URL(`${trimmed}/v1/chat/completions`).toString();
-  } catch {
-    throw new ChatClientError("invalid-base-url", "API base URL is invalid.");
-  }
 }
 
 function readAssistantMessage(data: unknown): AgentMessage | undefined {
@@ -308,6 +321,68 @@ function isDangerousCommand(command: string): boolean {
 }
 
 const AGENT_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "control_pet",
+      description: "Control the visible HaJiMi desktop pet body. Use this for requests like jump, run, move left/right, go to a corner, speak a bubble, open chat, change mood, play by yourself, review work, wait for a result, or calm down.",
+      parameters: {
+        type: "object",
+        oneOf: [
+          {
+            properties: {
+              type: { const: "say" },
+              text: { type: "string", minLength: 1, maxLength: 140 }
+            },
+            required: ["type", "text"]
+          },
+          {
+            properties: {
+              type: { enum: ["jump", "openChat", "stopMovement"] }
+            },
+            required: ["type"]
+          },
+          {
+            properties: {
+              type: { const: "moveToEdge" },
+              edge: { enum: ["left", "right", "topLeft", "topRight", "bottomLeft", "bottomRight", "center"] }
+            },
+            required: ["type", "edge"]
+          },
+          {
+            properties: {
+              type: { const: "moveTo" },
+              x: { type: "number" },
+              y: { type: "number" }
+            },
+            required: ["type", "x", "y"]
+          },
+          {
+            properties: {
+              type: { const: "runAround" },
+              seconds: { type: "number", minimum: 1, maximum: 30 }
+            },
+            required: ["type"]
+          },
+          {
+            properties: {
+              type: { const: "setMovement" },
+              enabled: { type: "boolean" },
+              intensity: { enum: ["calm", "normal", "lively"] }
+            },
+            required: ["type", "enabled"]
+          },
+          {
+            properties: {
+              type: { const: "mood" },
+              mood: { enum: ["idle", "happy", "working", "waiting", "review", "failed"] }
+            },
+            required: ["type", "mood"]
+          }
+        ]
+      }
+    }
+  },
   {
     type: "function",
     function: {
