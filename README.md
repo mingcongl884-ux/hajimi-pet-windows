@@ -110,6 +110,7 @@ Installers are generated in `dist/`.
 | 0.1.36 | `HaJiMi-Setup-0.1.36.exe` | Fixes OpenAI-compatible Base URLs that already include `/v1` so model tests and office agent requests no longer hit `/v1/v1/chat/completions`. |
 | 0.1.37 | `HaJiMi-Setup-0.1.37.exe` | Slows and lengthens two-pet chase play, stabilizes settings saves, syncs imported/switched active pets, pauses play while chatting, and improves real-position pet movement. |
 | 0.1.38 | `HaJiMi-Setup-0.1.38.exe` | Fixes packaged WeChat/OpenClaw detection by resolving HaJiMi's bundled OpenClaw and Node runtime from the installed resources directory. |
+| 0.1.39 | `HaJiMi-Setup-0.1.39.exe` | Bundles the delayed OpenClaw dependencies needed for WeChat plugin registration and QR login so the scan terminal can open without a separate OpenClaw install. |
 
 Use the latest installer unless you need to compare a previous build.
 

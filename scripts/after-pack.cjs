@@ -1,11 +1,105 @@
-const { existsSync, readdirSync } = require("node:fs");
-const { join } = require("node:path");
+const { cpSync, existsSync, mkdirSync, readdirSync } = require("node:fs");
+const { dirname, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
+
+const BUNDLED_RUNTIME_PACKAGES = [
+  "@borewit/text-codec",
+  "@clack/core",
+  "@clack/prompts",
+  "@mariozechner/jiti",
+  "@mariozechner/pi-agent-core",
+  "@mariozechner/pi-ai",
+  "@mariozechner/pi-coding-agent",
+  "@mariozechner/pi-tui",
+  "@modelcontextprotocol/sdk",
+  "@tokenizer/inflate",
+  "ajv-formats",
+  "ansi-styles",
+  "balanced-match",
+  "brace-expansion",
+  "buffer-crc32",
+  "chalk",
+  "cli-highlight",
+  "cross-spawn",
+  "debug",
+  "define-data-property",
+  "define-properties",
+  "diff",
+  "end-of-stream",
+  "entities",
+  "es-define-property",
+  "es-errors",
+  "escape-string-regexp",
+  "eventsource",
+  "eventsource-parser",
+  "extract-zip",
+  "fast-deep-equal",
+  "fast-string-truncated-width",
+  "fast-string-width",
+  "fast-uri",
+  "fast-wrap-ansi",
+  "fd-slicer",
+  "get-east-asian-width",
+  "get-stream",
+  "globalthis",
+  "gopd",
+  "graceful-fs",
+  "has-flag",
+  "has-property-descriptors",
+  "highlight.js",
+  "ieee754",
+  "ignore",
+  "isexe",
+  "jiti",
+  "json5",
+  "linkify-it",
+  "markdown-it",
+  "marked",
+  "mdurl",
+  "minimatch",
+  "ms",
+  "object-keys",
+  "once",
+  "openai",
+  "pako",
+  "parse5",
+  "parse5-htmlparser2-tree-adapter",
+  "partial-json",
+  "path-key",
+  "pend",
+  "pkce-challenge",
+  "proper-lockfile",
+  "pump",
+  "punycode.js",
+  "qrcode-terminal",
+  "retry",
+  "setimmediate",
+  "shebang-command",
+  "shebang-regex",
+  "signal-exit",
+  "sisteransi",
+  "strtok3",
+  "token-types",
+  "tslog",
+  "typebox",
+  "uc.micro",
+  "undici",
+  "uint8array-extras",
+  "uuid",
+  "which",
+  "wrappy",
+  "ws",
+  "yaml",
+  "yauzl",
+  "zod-to-json-schema"
+];
 
 module.exports = async function afterPack(context) {
   if (context.electronPlatformName !== "win32") {
     return;
   }
+
+  copyBundledRuntimePackages(context);
 
   const exePath = join(context.appOutDir, `${context.packager.appInfo.productFilename}.exe`);
   const iconPath = join(context.packager.projectDir, "assets", "icons", "app-icon.ico");
@@ -26,6 +120,24 @@ module.exports = async function afterPack(context) {
     throw new Error(`rcedit failed with exit code ${result.status}`);
   }
 };
+
+function copyBundledRuntimePackages(context) {
+  const sourceNodeModules = join(context.packager.projectDir, "node_modules");
+  const targetNodeModules = join(context.appOutDir, "resources", "app.asar.unpacked", "node_modules");
+  for (const packageName of BUNDLED_RUNTIME_PACKAGES) {
+    const source = packagePath(sourceNodeModules, packageName);
+    const target = packagePath(targetNodeModules, packageName);
+    if (!existsSync(source)) {
+      throw new Error(`Runtime package not found: ${packageName}`);
+    }
+    mkdirSync(dirname(target), { recursive: true });
+    cpSync(source, target, { recursive: true, force: true, dereference: false });
+  }
+}
+
+function packagePath(nodeModulesDir, packageName) {
+  return join(nodeModulesDir, ...packageName.split("/"));
+}
 
 function findRcedit(projectDir) {
   const localRcedit = join(projectDir, "node_modules", "rcedit", "bin", "rcedit-x64.exe");

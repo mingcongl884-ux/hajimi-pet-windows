@@ -41,4 +41,13 @@ describe("app icon wiring", () => {
     expect(afterPackSource).toContain("node_modules");
     expect(afterPackSource).toContain("rcedit");
   });
+
+  it("copies OpenClaw runtime dependencies that are loaded after startup", () => {
+    expect(afterPackSource).toContain("copyBundledRuntimePackages");
+    expect(afterPackSource).toContain("json5");
+    expect(afterPackSource).toContain("jiti");
+    expect(afterPackSource).toContain("openai");
+    expect(afterPackSource).toContain("qrcode-terminal");
+    expect(afterPackSource).toContain("fast-uri");
+  });
 });

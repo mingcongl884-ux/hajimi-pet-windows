@@ -2,6 +2,11 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.39 - 2026-05-11
+
+- Added the delayed OpenClaw runtime dependencies required by WeChat channel registration and QR login to the packaged app.
+- Fixed stale WeChat plugin setup paths by ensuring the packaged runtime can rebuild the local plugin dependency tree from the current install directory.
+
 ## 0.1.38 - 2026-05-11
 
 - Fixed packaged WeChat/OpenClaw detection so HaJiMi looks inside its bundled `resources/app.asar.unpacked/node_modules` runtime before falling back to a system `openclaw` command.
