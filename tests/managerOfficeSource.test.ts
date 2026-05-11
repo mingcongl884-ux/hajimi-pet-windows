@@ -34,6 +34,8 @@ describe("manager office workspace source", () => {
     expect(managerSource).toContain("codex-conversation-rename");
     expect(managerSource).toContain("onRenameConversation");
     expect(managerSource).toContain("composer-permission-select");
+    expect(managerSource).not.toContain('disabled={activeAgentModel?.provider !== "claude-agent"}');
+    expect(managerSource).not.toContain("选择 Claude Agent SDK 模型时生效");
     expect(managerSource).toContain("composer-model-select");
     expect(managerSource).toContain("onSendMessage");
     expect(managerSource).toContain("onSendOfficeMessage");
@@ -43,6 +45,9 @@ describe("manager office workspace source", () => {
     expect(appSource).toContain("chatBindingLabel");
     expect(appSource).toContain('currentPetModel?.provider === "claude-agent"');
     expect(appSource).toContain('activeAgentModel?.provider === "claude-agent"');
+    expect(appSource).toContain("const officeUsesWorkAgent = Boolean(activeAgentModel)");
+    expect(appSource).toContain('const modeForRequest: PetConversationMode = officeUsesWorkAgent ? "agent" : "chat"');
+    expect(appSource).toContain("const response = officeUsesWorkAgent");
     expect(appSource).toContain("applyPetActions(petActions, responseSettings)");
     expect(managerSource).toContain("messageListRef");
     expect(managerSource).toContain("sendingOfficeMessage");

@@ -1916,6 +1916,7 @@ button:disabled {
   color: #d35400;
   font-weight: 650;
   max-width: 150px;
+  cursor: pointer;
 }
 
 .composer-model-picker {

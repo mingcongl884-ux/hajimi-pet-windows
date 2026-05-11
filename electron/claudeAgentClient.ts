@@ -12,9 +12,6 @@ export async function runClaudeAgentTask(
   agent: AgentSettings,
   task: string
 ): Promise<ChatResponse> {
-  if (!model.apiKey.trim()) {
-    throw new ChatClientError("missing-api-key", "API key is required.");
-  }
   if (!agent.workspaceDir.trim()) {
     throw new ChatClientError("malformed-response", "Choose a workspace before using advanced work mode.");
   }
@@ -32,10 +29,6 @@ export async function runClaudeAgentTask(
 }
 
 export async function testClaudeAgentModel(model: ModelProfile): Promise<string> {
-  if (!model.apiKey.trim()) {
-    throw new ChatClientError("missing-api-key", "API key is required.");
-  }
-
   const response = await runClaudeQuery(model, "Reply with OK only.", {
     tools: [],
     maxTurns: 1,
@@ -86,12 +79,7 @@ export function buildClaudePermissionOptions(agent: AgentSettings): Pick<
 }
 
 async function runClaudeQuery(model: ModelProfile, prompt: string, options: Options): Promise<ChatResponse> {
-  const env = {
-    ...process.env,
-    ANTHROPIC_API_KEY: model.apiKey.trim(),
-    ANTHROPIC_BASE_URL: normalizeAnthropicBaseUrl(model.baseUrl),
-    CLAUDE_AGENT_SDK_CLIENT_APP: "hajimi-pet/0.1"
-  };
+  const env = buildClaudeEnvironment(model);
 
   const messages: SDKMessage[] = [];
   try {
@@ -118,6 +106,25 @@ async function runClaudeQuery(model: ModelProfile, prompt: string, options: Opti
   }
 
   return { role: "assistant", content: result };
+}
+
+export function buildClaudeEnvironment(
+  model: ModelProfile,
+  baseEnv: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...baseEnv,
+    CLAUDE_AGENT_SDK_CLIENT_APP: "hajimi-pet/0.1"
+  };
+  const apiKey = model.apiKey.trim();
+  const baseUrl = normalizeAnthropicBaseUrl(model.baseUrl, Boolean(apiKey));
+  if (apiKey) {
+    env.ANTHROPIC_API_KEY = apiKey;
+  }
+  if (baseUrl) {
+    env.ANTHROPIC_BASE_URL = baseUrl;
+  }
+  return env;
 }
 
 function decideToolUse(toolName: string, input: Record<string, unknown>, allowSafeBash: boolean): Promise<PermissionResult> {
@@ -176,9 +183,15 @@ function buildAgentAppendPrompt(systemPrompt: string, agent: AgentSettings): str
   ].join("\n");
 }
 
-function normalizeAnthropicBaseUrl(baseUrl: string): string {
+function normalizeAnthropicBaseUrl(baseUrl: string, hasApiKey: boolean): string | undefined {
   const trimmed = baseUrl.trim().replace(/\/+$/, "");
   if (!trimmed || /^https:\/\/api\.openai\.com\/?$/i.test(trimmed)) {
+    return hasApiKey ? DEFAULT_ANTHROPIC_BASE_URL : undefined;
+  }
+  if (!hasApiKey && trimmed.toLowerCase() === DEFAULT_ANTHROPIC_BASE_URL) {
+    return undefined;
+  }
+  if (hasApiKey && /^https:\/\/api\.anthropic\.com\/?$/i.test(trimmed)) {
     return DEFAULT_ANTHROPIC_BASE_URL;
   }
   return trimmed;

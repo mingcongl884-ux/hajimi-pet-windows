@@ -161,6 +161,7 @@ export default function App() {
   const agentMode = currentPetModel?.provider === "claude-agent";
   const activeAgentModelId = state?.settings.activeAgentModelId;
   const activeAgentModel = state ? getModelSettingsById(state.settings, activeAgentModelId, "agent") : undefined;
+  const officeUsesWorkAgent = Boolean(activeAgentModel);
   const officeUsesClaudeCode = activeAgentModel?.provider === "claude-agent";
   const chatBindingLabel = [
     activeProject?.name || "当前项目",
@@ -462,11 +463,11 @@ export default function App() {
     markInteraction();
     const userMessage: ChatMessage = { role: "user", content: content.trim() };
     const conversationId = activeConversation.id;
-    const modeForRequest: PetConversationMode = officeUsesClaudeCode ? "agent" : "chat";
+    const modeForRequest: PetConversationMode = officeUsesWorkAgent ? "agent" : "chat";
     if (await runLocalPetInteraction(content, userMessage, conversationId, modeForRequest)) {
       return;
     }
-    if (officeUsesClaudeCode && !state.settings.agent.workspaceDir) {
+    if (officeUsesWorkAgent && !state.settings.agent.workspaceDir) {
       setError("先在管理页或快速设置里选择一个办公区。");
       return;
     }
@@ -477,14 +478,14 @@ export default function App() {
       modeForRequest
     );
     setState({ ...state, settings: optimisticSettings });
-    setStatus(officeUsesClaudeCode ? "review" : "waiting");
+    setStatus(officeUsesWorkAgent ? "review" : "waiting");
     setError(undefined);
     busyRef.current = true;
     const startedAt = Date.now();
 
     try {
       const requestMessages = [...activeConversation.messages, userMessage];
-      const response = officeUsesClaudeCode
+      const response = officeUsesWorkAgent
         ? await window.petApp.runAgentTask(content.trim(), activeAgentModelId)
         : await window.petApp.sendChat(requestMessages, activeAgentModelId);
       const responseWithDuration = { ...response, durationMs: Date.now() - startedAt };

@@ -2,6 +2,12 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.44 - 2026-05-11
+
+- Made the office permission selector clickable for every office model so default, auto-review, and full-access modes can be changed from the composer.
+- Routed normal OpenAI-compatible office models through HaJiMi's built-in work agent tools instead of plain pet chat, enabling file/search/write/command workflows when a workspace is selected.
+- Let Claude Agent SDK profiles inherit existing Claude Code or CC Switch provider settings when API fields are left blank, while still supporting explicit Anthropic-compatible keys and endpoints.
+
 ## 0.1.43 - 2026-05-11
 
 - Fixed file upload handling so `.xlsx` files are parsed into readable worksheet text instead of raw ZIP binary content.

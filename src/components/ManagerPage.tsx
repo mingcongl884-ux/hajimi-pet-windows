@@ -749,8 +749,7 @@ export default function ManagerPage({
               <select
                 className="composer-permission-select"
                 value={settings.agent.permissionMode}
-                title={activeAgentModel?.provider === "claude-agent" ? activePermission.description : "选择 Claude Agent SDK 模型时生效"}
-                disabled={activeAgentModel?.provider !== "claude-agent"}
+                title={activePermission.description}
                 onChange={(event) => void updatePermissionMode(event.target.value as AgentPermissionMode)}
               >
                 {permissionOptions.map((option) => (
