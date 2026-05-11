@@ -1,9 +1,9 @@
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
-import { dirname, resolve, sep } from "node:path";
+import { basename, dirname, resolve, sep } from "node:path";
 import { spawn } from "node:child_process";
-import type { ChatApiSettings, ChatResponse } from "./chatClient.js";
+import type { ChatApiSettings, ChatFileOutput, ChatResponse } from "./chatClient.js";
 import { buildOpenAIChatCompletionsEndpoint } from "./chatClient.js";
-import { ChatClientError } from "./chatClient.js";
+import { ChatClientError, fetchChatCompletion } from "./chatClient.js";
 import type { AgentSettings } from "./settingsStore.js";
 import { readPetAction, type PetAction } from "../src/lib/petActions.js";
 
@@ -35,6 +35,11 @@ type ToolCall = {
   };
 };
 
+type ToolResult = {
+  content: string;
+  fileOutput?: ChatFileOutput;
+};
+
 const MAX_STEPS = 6;
 const MAX_TOOL_OUTPUT = 12000;
 
@@ -56,9 +61,10 @@ export async function runAgentTask(
     { role: "user", content: task }
   ];
   const petActions: PetAction[] = [];
+  const fileOutputs: ChatFileOutput[] = [];
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
-    const response = await fetchImpl(buildOpenAIChatCompletionsEndpoint(api.baseUrl), {
+    const response = await fetchChatCompletion(fetchImpl, buildOpenAIChatCompletionsEndpoint(api.baseUrl), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${api.apiKey}`,
@@ -90,7 +96,8 @@ export async function runAgentTask(
       return {
         role: "assistant",
         content: message.content || (petActions.length ? "好的。" : "Done."),
-        petActions: petActions.length ? petActions : undefined
+        petActions: petActions.length ? petActions : undefined,
+        fileOutputs: fileOutputs.length ? fileOutputs : undefined
       };
     }
 
@@ -99,11 +106,14 @@ export async function runAgentTask(
       if (petAction) {
         petActions.push(petAction);
       }
-      const result = petAction ? "Pet action accepted." : await executeToolCall(agent, toolCall);
+      const result = petAction ? { content: "Pet action accepted." } : await executeToolCall(agent, toolCall);
+      if (result.fileOutput) {
+        fileOutputs.push(result.fileOutput);
+      }
       messages.push({
         role: "tool",
         tool_call_id: toolCall.id,
-        content: trimToolOutput(result)
+        content: trimToolOutput(result.content)
       });
     }
   }
@@ -111,7 +121,8 @@ export async function runAgentTask(
   return {
     role: "assistant",
     content: petActions.length ? "我已经执行了宠物动作。" : "I reached the step limit. I stopped before doing more work.",
-    petActions: petActions.length ? petActions : undefined
+    petActions: petActions.length ? petActions : undefined,
+    fileOutputs: fileOutputs.length ? fileOutputs : undefined
   };
 }
 
@@ -128,26 +139,28 @@ export function resolveWorkspacePath(workspaceDir: string, relativePath: string)
   return target;
 }
 
-async function executeToolCall(agent: AgentSettings, toolCall: ToolCall): Promise<string> {
+async function executeToolCall(agent: AgentSettings, toolCall: ToolCall): Promise<ToolResult> {
   const args = parseToolArguments(toolCall.function.arguments);
   switch (toolCall.function.name) {
     case "list_files":
-      return listFiles(agent.workspaceDir, String(args.path ?? "."));
+      return { content: await listFiles(agent.workspaceDir, String(args.path ?? ".")) };
     case "read_file":
-      return readTextFile(agent.workspaceDir, String(args.path ?? ""));
+      return { content: await readTextFile(agent.workspaceDir, String(args.path ?? "")) };
     case "search_files":
-      return searchFiles(
-        agent.workspaceDir,
-        String(args.query ?? ""),
-        String(args.path ?? "."),
-        typeof args.fileGlob === "string" ? args.fileGlob : undefined
-      );
+      return {
+        content: await searchFiles(
+          agent.workspaceDir,
+          String(args.query ?? ""),
+          String(args.path ?? "."),
+          typeof args.fileGlob === "string" ? args.fileGlob : undefined
+        )
+      };
     case "write_file":
       return writeTextFile(agent.workspaceDir, String(args.path ?? ""), String(args.content ?? ""));
     case "run_command":
-      return runCommand(agent, String(args.command ?? ""));
+      return { content: await runCommand(agent, String(args.command ?? "")) };
     default:
-      return `Unknown tool: ${toolCall.function.name}`;
+      return { content: `Unknown tool: ${toolCall.function.name}` };
   }
 }
 
@@ -192,11 +205,18 @@ async function searchFiles(
   return `Search failed:\n${result.output}`;
 }
 
-async function writeTextFile(workspaceDir: string, relativePath: string, content: string): Promise<string> {
+async function writeTextFile(workspaceDir: string, relativePath: string, content: string): Promise<ToolResult> {
   const filePath = resolveWorkspacePath(workspaceDir, relativePath);
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, content, "utf8");
-  return `Wrote ${relativePath}`;
+  return {
+    content: `Wrote ${relativePath}`,
+    fileOutput: {
+      path: relativePath,
+      name: basename(relativePath),
+      size: Buffer.byteLength(content, "utf8")
+    }
+  };
 }
 
 async function runCommand(agent: AgentSettings, command: string): Promise<string> {
@@ -284,6 +304,7 @@ function buildAgentPrompt(systemPrompt: string, agent: AgentSettings): string {
     "If the user asks you to jump, move, run, change mood, speak as a bubble, go to a screen edge/corner, play by yourself, review work, wait for a result, or calm down, use control_pet instead of saying you cannot control the GUI.",
     "Use mood=review while reading files or thinking about a work task, mood=waiting while waiting for tool output or a user reply, mood=working for focused office flow, and mood=failed when blocked.",
     "Keep file paths relative to the workspace.",
+    "When the user asks for a spreadsheet, report, document, or any other output file, create it with write_file in the workspace and mention the relative path instead of dumping the full file content into chat.",
     "For code or file tasks: inspect relevant files first, make focused edits, run a suitable verification command when available, then summarize the outcome.",
     "Prefer search_files before guessing where code lives. Prefer read_file before write_file.",
     "Explain what you changed or what command output means. Do not claim work is done unless a tool result supports it."

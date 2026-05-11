@@ -19,8 +19,9 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import type { ChannelAdapterResult } from "../../electron/channelAdapters";
+import type { ChatMessage } from "../../electron/chatClient";
 import type { UpdateCheckResult } from "../../electron/networkClient";
 import type { AgentPermissionMode, AppSettings, ModelProfile, ModelProvider, PetConversation, PetConversationMode } from "../../electron/settingsStore";
 import type { RemoteNotice } from "../../electron/settingsStore";
@@ -28,7 +29,7 @@ import type { PetAppState } from "../global";
 import { toggleActivePetId } from "../lib/activePets";
 import { openClawSetupSteps, type ChannelProvider, type ChannelSettings } from "../lib/channels";
 import { ensureProjects } from "../lib/projects";
-import { fileToMessageContent } from "../lib/fileMessage";
+import { buildAttachmentMessage, fileToPromptAttachment, type PromptAttachment } from "../lib/fileMessage";
 import { ensureModelProfiles, upsertModelProfile } from "../lib/modelProfiles";
 
 type Props = {
@@ -52,8 +53,8 @@ type Props = {
   onSwitchConversation(conversationId: string): Promise<void>;
   onDeleteConversation(conversationId: string): Promise<void>;
   onRenameConversation(conversationId: string, title: string): Promise<void>;
-  onSendMessage(content: string): Promise<void>;
-  onSendOfficeMessage(content: string): Promise<void>;
+  onSendMessage(message: ChatMessage): Promise<void>;
+  onSendOfficeMessage(message: ChatMessage): Promise<void>;
 };
 
 type ManagerSection = "office" | "pets" | "models" | "channels" | "system";
@@ -115,6 +116,8 @@ export default function ManagerPage({
   const [testMessage, setTestMessage] = useState<string>();
   const [officeDraft, setOfficeDraft] = useState("");
   const [sendingOfficeMessage, setSendingOfficeMessage] = useState(false);
+  const [pendingOfficeAttachments, setPendingOfficeAttachments] = useState<PromptAttachment[]>([]);
+  const [officeDragActive, setOfficeDragActive] = useState(false);
   const [officeElapsedMs, setOfficeElapsedMs] = useState(1000);
   const [networkMessage, setNetworkMessage] = useState<string>();
   const [channelMessage, setChannelMessage] = useState<string>();
@@ -579,30 +582,66 @@ export default function ManagerPage({
   async function submitOfficeMessage(event: FormEvent) {
     event.preventDefault();
     const content = officeDraft.trim();
-    if (!content || sendingOfficeMessage) {
+    if ((!content && pendingOfficeAttachments.length === 0) || sendingOfficeMessage) {
       return;
     }
+    const message = pendingOfficeAttachments.length > 0
+      ? buildAttachmentMessage(content, pendingOfficeAttachments)
+      : { role: "user" as const, content };
     setOfficeDraft("");
+    setPendingOfficeAttachments([]);
     setSendingOfficeMessage(true);
     try {
-      await onSendOfficeMessage(content);
+      await onSendOfficeMessage(message);
     } finally {
       setSendingOfficeMessage(false);
     }
   }
 
   async function sendOfficeFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+    const files = event.target.files;
     event.target.value = "";
-    if (!file || sendingOfficeMessage) {
+    if (sendingOfficeMessage) {
       return;
     }
-    setSendingOfficeMessage(true);
-    try {
-      await onSendOfficeMessage(await fileToMessageContent(file));
-    } finally {
-      setSendingOfficeMessage(false);
+    await addOfficeFiles(files);
+  }
+
+  async function addOfficeFiles(fileList: FileList | File[] | null | undefined) {
+    const files = Array.from(fileList ?? []);
+    if (!files.length) {
+      return;
     }
+    const nextAttachments = await Promise.all(files.map((file) => fileToPromptAttachment(file)));
+    setPendingOfficeAttachments((current) => [...current, ...nextAttachments]);
+  }
+
+  function removeOfficeAttachment(id: string) {
+    setPendingOfficeAttachments((current) => current.filter((attachment) => attachment.id !== id));
+  }
+
+  function handleOfficeDragOver(event: DragEvent<HTMLElement>) {
+    if (!event.dataTransfer.types.includes("Files")) {
+      return;
+    }
+    event.preventDefault();
+    setOfficeDragActive(true);
+  }
+
+  function handleOfficeDragLeave(event: DragEvent<HTMLElement>) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return;
+    }
+    setOfficeDragActive(false);
+  }
+
+  async function handleOfficeDrop(event: DragEvent<HTMLElement>) {
+    if (!event.dataTransfer.files.length) {
+      return;
+    }
+    event.preventDefault();
+    setOfficeDragActive(false);
+    await addOfficeFiles(event.dataTransfer.files);
   }
 
   const activeConversation =
@@ -735,7 +774,12 @@ export default function ManagerPage({
       </aside>
 
       {section === "office" && (
-        <section className="codex-chat-main">
+        <section
+          className={officeDragActive ? "codex-chat-main composer-drop-active" : "codex-chat-main"}
+          onDragOver={handleOfficeDragOver}
+          onDragLeave={handleOfficeDragLeave}
+          onDrop={(event) => void handleOfficeDrop(event)}
+        >
           <div className="codex-message-scroll" ref={messageListRef}>
             {messages.length === 0 && (
               <div className="codex-empty-state">
@@ -748,7 +792,17 @@ export default function ManagerPage({
                 {message.role === "assistant" && message.durationMs !== undefined && (
                   <span className="codex-message-meta">{formatProcessingTime(message.durationMs)}</span>
                 )}
-                <p>{message.content}</p>
+                <p>{message.displayContent ?? message.content}</p>
+                {message.fileOutputs?.length ? (
+                  <div className="composer-output-files">
+                    {message.fileOutputs.map((file) => (
+                      <span className="composer-output-file" key={`${file.path}-${file.size ?? 0}`}>
+                        <Paperclip size={12} />
+                        <span>{file.name || file.path}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </article>
             ))}
             {sendingOfficeMessage && (
@@ -764,7 +818,23 @@ export default function ManagerPage({
             )}
           </div>
 
-          <form className="codex-composer" onSubmit={submitOfficeMessage}>
+          <form
+            className={officeDragActive ? "codex-composer composer-drop-active" : "codex-composer"}
+            onSubmit={submitOfficeMessage}
+          >
+            {pendingOfficeAttachments.length > 0 && (
+              <div className="composer-attachments">
+                {pendingOfficeAttachments.map((attachment) => (
+                  <span className="composer-attachment" key={attachment.id}>
+                    <Paperclip size={12} />
+                    <span>{attachment.name}</span>
+                    <button type="button" title="移除附件" onClick={() => removeOfficeAttachment(attachment.id)}>
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <input
               value={officeDraft}
               disabled={sendingOfficeMessage}
@@ -776,6 +846,7 @@ export default function ManagerPage({
                 ref={officeFileInputRef}
                 className="hidden-file-input"
                 type="file"
+                multiple
                 onChange={(event) => void sendOfficeFile(event)}
               />
               <button type="button" title="发送文件" onClick={() => officeFileInputRef.current?.click()}>
@@ -857,7 +928,7 @@ export default function ManagerPage({
                 className="codex-send-button"
                 title={sendingOfficeMessage ? "发送中" : "发送"}
                 type="submit"
-                disabled={sendingOfficeMessage || !officeDraft.trim()}
+                disabled={sendingOfficeMessage || (!officeDraft.trim() && pendingOfficeAttachments.length === 0)}
               >
                 <Send size={17} />
               </button>

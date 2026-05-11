@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildClaudeEnvironment,
   buildClaudePermissionOptions,
+  readClaudeFileOutputs,
   resolveClaudeCodeExecutable,
   toClaudePermissionMode
 } from "../electron/claudeAgentClient";
@@ -94,5 +95,24 @@ describe("Claude Agent SDK permissions", () => {
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("extracts Claude Code output files for compact chat display", () => {
+    const messages = [{
+      type: "assistant",
+      message: {
+        content: [{
+          type: "tool_use",
+          name: "Write",
+          input: { file_path: "reports/summary.md", content: "done" }
+        }]
+      }
+    }];
+
+    expect(readClaudeFileOutputs(messages, "C:\\work\\project")).toEqual([{
+      path: "reports\\summary.md",
+      name: "summary.md",
+      size: 4
+    }]);
   });
 });

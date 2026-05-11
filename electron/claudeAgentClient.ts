@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query, type Options, type PermissionMode, type PermissionResult, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { ChatClientError, type ChatResponse } from "./chatClient.js";
+import { ChatClientError, type ChatFileOutput, type ChatResponse } from "./chatClient.js";
 import type { AgentPermissionMode, AgentSettings, ModelProfile } from "./settingsStore.js";
 
 const READ_ONLY_TOOLS = ["Read", "Glob", "Grep", "LS"];
@@ -119,7 +119,8 @@ async function runClaudeQuery(model: ModelProfile, prompt: string, options: Opti
     throw new ChatClientError("malformed-response", "Claude Agent SDK returned an invalid response.");
   }
 
-  return { role: "assistant", content: result };
+  const fileOutputs = readClaudeFileOutputs(messages, typeof options.cwd === "string" ? options.cwd : undefined);
+  return { role: "assistant", content: result, fileOutputs: fileOutputs.length ? fileOutputs : undefined };
 }
 
 export function resolveClaudeCodeExecutable(baseEnv: NodeJS.ProcessEnv = process.env): string | undefined {
@@ -198,6 +199,90 @@ function readContentBlockText(block: unknown): string {
     return typeof text === "string" ? text : "";
   }
   return "";
+}
+
+export function readClaudeFileOutputs(messages: readonly unknown[], workspaceDir?: string): ChatFileOutput[] {
+  const outputs = new Map<string, ChatFileOutput>();
+  for (const message of messages) {
+    for (const block of readMessageBlocks(message)) {
+      const toolName = readToolName(block);
+      if (!toolName || !["Write", "Edit", "MultiEdit"].includes(toolName)) {
+        continue;
+      }
+      const input = readToolInput(block);
+      const rawPath = readToolFilePath(input);
+      if (!rawPath) {
+        continue;
+      }
+      const path = normalizeToolOutputPath(rawPath, workspaceDir);
+      outputs.set(path, {
+        path,
+        name: basename(path),
+        size: readToolOutputSize(input, rawPath, workspaceDir)
+      });
+    }
+  }
+  return [...outputs.values()];
+}
+
+function readMessageBlocks(message: unknown): unknown[] {
+  if (!message || typeof message !== "object") {
+    return [];
+  }
+  const outer = message as { message?: unknown; content?: unknown };
+  const inner = outer.message && typeof outer.message === "object"
+    ? outer.message as { content?: unknown }
+    : undefined;
+  const content = inner?.content ?? outer.content;
+  return Array.isArray(content) ? content : [];
+}
+
+function readToolName(block: unknown): string | undefined {
+  if (!block || typeof block !== "object") {
+    return undefined;
+  }
+  const typed = block as { type?: unknown; name?: unknown };
+  if (typed.type !== "tool_use" && typed.type !== "server_tool_use") {
+    return undefined;
+  }
+  return typeof typed.name === "string" ? typed.name : undefined;
+}
+
+function readToolInput(block: unknown): Record<string, unknown> {
+  if (!block || typeof block !== "object") {
+    return {};
+  }
+  const input = (block as { input?: unknown }).input;
+  return input && typeof input === "object" ? input as Record<string, unknown> : {};
+}
+
+function readToolFilePath(input: Record<string, unknown>): string | undefined {
+  const value = input.file_path ?? input.path;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeToolOutputPath(filePath: string, workspaceDir?: string): string {
+  if (!workspaceDir) {
+    return filePath;
+  }
+  const absolutePath = isAbsolute(filePath) ? filePath : resolve(workspaceDir, filePath);
+  const relativePath = relative(workspaceDir, absolutePath);
+  return relativePath && !relativePath.startsWith("..") ? relativePath : filePath;
+}
+
+function readToolOutputSize(input: Record<string, unknown>, filePath: string, workspaceDir?: string): number | undefined {
+  if (typeof input.content === "string") {
+    return Buffer.byteLength(input.content, "utf8");
+  }
+  if (!workspaceDir) {
+    return undefined;
+  }
+  const absolutePath = isAbsolute(filePath) ? filePath : resolve(workspaceDir, filePath);
+  try {
+    return statSync(absolutePath).size;
+  } catch {
+    return undefined;
+  }
 }
 
 function buildAgentAppendPrompt(systemPrompt: string, agent: AgentSettings): string {

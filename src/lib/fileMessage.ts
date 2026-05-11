@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import type { ChatMessage } from "../../electron/chatClient.js";
 
 const DEFAULT_MAX_CHARS = 12000;
 const MAX_EXCEL_ROWS_PER_SHEET = 120;
@@ -38,6 +39,15 @@ type ReadResult = {
   content: string;
 };
 
+export type PromptAttachment = {
+  id: string;
+  name: string;
+  size: number;
+  label: string;
+  prompt: string;
+  content: string;
+};
+
 type WorkbookSheet = {
   name: string;
   path: string;
@@ -57,6 +67,46 @@ export async function fileToMessageContent(file: File, maxChars = DEFAULT_MAX_CH
     content,
     "```"
   ].join("\n");
+}
+
+export async function fileToPromptAttachment(file: File, maxChars = DEFAULT_MAX_CHARS): Promise<PromptAttachment> {
+  const result = await readFileForPrompt(file);
+  return {
+    id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
+    name: file.name,
+    size: file.size,
+    label: result.label,
+    prompt: result.prompt,
+    content: truncateContent(result.content, maxChars)
+  };
+}
+
+export function buildAttachmentMessage(instruction: string, attachments: PromptAttachment[]): ChatMessage {
+  const visibleInstruction = instruction.trim();
+  const attachmentSummary = attachments.map((attachment) =>
+    `附件：${attachment.name} (${formatBytes(attachment.size)})`
+  );
+  const displayContent = [visibleInstruction, ...attachmentSummary].filter(Boolean).join("\n");
+  const promptParts = attachments.map((attachment) => [
+    `文件：${attachment.name}`,
+    `大小：${formatBytes(attachment.size)}`,
+    `类型：${attachment.label}`,
+    "",
+    attachment.prompt,
+    "```",
+    attachment.content,
+    "```"
+  ].join("\n"));
+
+  return {
+    role: "user",
+    content: [
+      visibleInstruction || "请处理这些附件。",
+      "",
+      ...promptParts
+    ].join("\n").trim(),
+    displayContent: displayContent || "附件"
+  };
 }
 
 async function readFileForPrompt(file: File): Promise<ReadResult> {

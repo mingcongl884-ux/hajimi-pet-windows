@@ -5,7 +5,15 @@ export type ChatRole = "system" | "user" | "assistant";
 export type ChatMessage = {
   role: ChatRole;
   content: string;
+  displayContent?: string;
   durationMs?: number;
+  fileOutputs?: ChatFileOutput[];
+};
+
+export type ChatFileOutput = {
+  path: string;
+  name: string;
+  size?: number;
 };
 
 export type ChatApiSettings = {
@@ -20,6 +28,7 @@ export type ChatResponse = {
   content: string;
   durationMs?: number;
   petActions?: PetAction[];
+  fileOutputs?: ChatFileOutput[];
 };
 
 export class ChatClientError extends Error {
@@ -27,6 +36,7 @@ export class ChatClientError extends Error {
     public readonly code:
       | "missing-api-key"
       | "invalid-base-url"
+      | "network-error"
       | "provider-error"
       | "malformed-response",
     message: string,
@@ -61,10 +71,10 @@ export async function sendChatMessage(
     "Use mood=review while reading or reviewing work, mood=waiting while waiting for a result, mood=working for focused office mode, and mood=failed when something is blocked.";
   const requestMessages = [
     { role: "system" as const, content: [settings.systemPrompt.trim(), petBodyPrompt].filter(Boolean).join("\n") },
-    ...messages
+    ...messages.map(toProviderMessage)
   ];
 
-  const response = await fetchImpl(endpoint, {
+  const response = await fetchChatCompletion(fetchImpl, endpoint, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${settings.apiKey}`,
@@ -94,6 +104,73 @@ export async function sendChatMessage(
   }
 
   return { role: "assistant", content: content || "好的。", petActions: petActions.length ? petActions : undefined };
+}
+
+export async function fetchChatCompletion(
+  fetchImpl: FetchLike,
+  endpoint: string,
+  init: RequestInit
+): Promise<Awaited<ReturnType<FetchLike>>> {
+  try {
+    return await fetchImpl(endpoint, init);
+  } catch (error) {
+    throw createNetworkError(error, endpoint);
+  }
+}
+
+function createNetworkError(error: unknown, endpoint: string): ChatClientError {
+  return new ChatClientError(
+    "network-error",
+    `网络连接失败：${describeNetworkFailure(error)}。请检查 API Base URL、网络、代理/VPN、防火墙或系统证书。目标：${endpoint}`
+  );
+}
+
+function describeNetworkFailure(error: unknown): string {
+  const text = collectErrorText(error).join(" ");
+  if (/\bENOTFOUND\b|getaddrinfo|DNS/i.test(text)) {
+    return "DNS 解析失败，当前电脑可能访问不了这个域名";
+  }
+  if (/\bECONNREFUSED\b/i.test(text)) {
+    return "目标服务器拒绝连接，网关地址或端口可能不对";
+  }
+  if (/\bETIMEDOUT\b|\bUND_ERR_CONNECT_TIMEOUT\b|timeout/i.test(text)) {
+    return "连接超时，网络或代理可能不可用";
+  }
+  if (/CERT|certificate|UNABLE_TO_VERIFY|SELF_SIGNED|SSL|TLS/i.test(text)) {
+    return "HTTPS 证书校验失败，请检查系统时间、证书或代理证书";
+  }
+  if (/fetch failed/i.test(text)) {
+    return "无法连接到 API 服务";
+  }
+  return text || "请求还没有到达模型服务";
+}
+
+function collectErrorText(error: unknown): string[] {
+  const parts: string[] = [];
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const typed = current as { message?: unknown; code?: unknown; cause?: unknown };
+    if (typeof typed.message === "string") {
+      parts.push(typed.message);
+    }
+    if (typeof typed.code === "string") {
+      parts.push(typed.code);
+    }
+    current = typed.cause;
+  }
+  if (typeof current === "string") {
+    parts.push(current);
+  }
+  return parts;
+}
+
+function toProviderMessage(message: ChatMessage): { role: ChatRole; content: string } {
+  return {
+    role: message.role,
+    content: message.content
+  };
 }
 
 export function buildOpenAIChatCompletionsEndpoint(baseUrl: string): string {

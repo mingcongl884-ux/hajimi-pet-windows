@@ -1,8 +1,8 @@
 import { MoreHorizontal, Paperclip, Plus, Send, Trash2, X } from "lucide-react";
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import type { ChatMessage } from "../../electron/chatClient";
 import type { PetConversation, PetConversationMode } from "../../electron/settingsStore";
-import { fileToMessageContent } from "../lib/fileMessage";
+import { buildAttachmentMessage, fileToPromptAttachment, type PromptAttachment } from "../lib/fileMessage";
 
 type Props = {
   displayName: string;
@@ -15,7 +15,7 @@ type Props = {
   onCreateConversation(mode: PetConversationMode): void | Promise<void>;
   onSwitchConversation(conversationId: string): void | Promise<void>;
   onDeleteConversation(conversationId: string): void | Promise<void>;
-  onSend(content: string): void | Promise<void>;
+  onSend(message: ChatMessage): void | Promise<void>;
   onClose(): void;
 };
 
@@ -35,6 +35,8 @@ export default function ChatPanel({
 }: Props) {
   const [draft, setDraft] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<PromptAttachment[]>([]);
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -73,20 +75,58 @@ export default function ChatPanel({
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (!draft.trim()) {
+    if (!draft.trim() && pendingAttachments.length === 0) {
       return;
     }
-    void onSend(draft);
+    const message = pendingAttachments.length > 0
+      ? buildAttachmentMessage(draft, pendingAttachments)
+      : { role: "user" as const, content: draft.trim() };
+    void onSend(message);
     setDraft("");
+    setPendingAttachments([]);
   }
 
   async function sendFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+    const files = event.target.files;
     event.target.value = "";
-    if (!file) {
+    await addFiles(files);
+  }
+
+  async function addFiles(fileList: FileList | File[] | null | undefined) {
+    const files = Array.from(fileList ?? []);
+    if (!files.length) {
       return;
     }
-    await onSend(await fileToMessageContent(file));
+    const nextAttachments = await Promise.all(files.map((file) => fileToPromptAttachment(file)));
+    setPendingAttachments((current) => [...current, ...nextAttachments]);
+  }
+
+  function removeAttachment(id: string) {
+    setPendingAttachments((current) => current.filter((attachment) => attachment.id !== id));
+  }
+
+  function handleDragOver(event: DragEvent<HTMLElement>) {
+    if (!event.dataTransfer.types.includes("Files")) {
+      return;
+    }
+    event.preventDefault();
+    setDragActive(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLElement>) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return;
+    }
+    setDragActive(false);
+  }
+
+  async function handleDrop(event: DragEvent<HTMLElement>) {
+    if (!event.dataTransfer.files.length) {
+      return;
+    }
+    event.preventDefault();
+    setDragActive(false);
+    await addFiles(event.dataTransfer.files);
   }
 
   function runMenuAction(action: () => void | Promise<void>) {
@@ -95,7 +135,12 @@ export default function ChatPanel({
   }
 
   return (
-    <section className="chat-panel">
+    <section
+      className={dragActive ? "chat-panel composer-drop-active" : "chat-panel"}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <header>
         <div className="chat-title-block">
           <strong>{displayName}</strong>
@@ -158,16 +203,40 @@ export default function ChatPanel({
             {message.role === "assistant" && message.durationMs !== undefined && (
               <span className="message-meta">{formatProcessingTime(message.durationMs)}</span>
             )}
-            <span>{message.content}</span>
+            <span>{message.displayContent ?? message.content}</span>
+            {message.fileOutputs?.length ? (
+              <div className="composer-output-files">
+                {message.fileOutputs.map((file) => (
+                  <span className="composer-output-file" key={`${file.path}-${file.size ?? 0}`}>
+                    <Paperclip size={12} />
+                    <span>{file.name || file.path}</span>
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
         ))}
         {error && <p className="message error">{error}</p>}
       </div>
       <form onSubmit={submit}>
+        {pendingAttachments.length > 0 && (
+          <div className="composer-attachments">
+            {pendingAttachments.map((attachment) => (
+              <span className="composer-attachment" key={attachment.id}>
+                <Paperclip size={12} />
+                <span>{attachment.name}</span>
+                <button type="button" title="移除附件" onClick={() => removeAttachment(attachment.id)}>
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <input
           ref={fileInputRef}
           className="hidden-file-input"
           type="file"
+          multiple
           onChange={(event) => void sendFile(event)}
         />
         <input
@@ -178,7 +247,7 @@ export default function ChatPanel({
         <button className="chat-file-button" title="发送文件" type="button" onClick={() => fileInputRef.current?.click()}>
           <Paperclip size={16} />
         </button>
-        <button className="chat-send-button" title="发送" type="submit" disabled={!draft.trim()}>
+        <button className="chat-send-button" title="发送" type="submit" disabled={!draft.trim() && pendingAttachments.length === 0}>
           <Send size={16} />
         </button>
       </form>

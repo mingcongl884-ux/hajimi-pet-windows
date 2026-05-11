@@ -52,6 +52,12 @@ describe("manager office workspace source", () => {
     expect(managerSource).toContain("messageListRef");
     expect(managerSource).toContain("sendingOfficeMessage");
     expect(managerSource).toContain("setOfficeElapsedMs");
+    expect(managerSource).toContain("pendingOfficeAttachments");
+    expect(managerSource).toContain("addOfficeFiles");
+    expect(managerSource).toContain("buildAttachmentMessage");
+    expect(managerSource).toContain("onDragOver={handleOfficeDragOver}");
+    expect(managerSource).toContain("onDrop={(event) => void handleOfficeDrop(event)}");
+    expect(managerSource).toContain("message.displayContent ?? message.content");
     expect(managerSource).toContain("setOfficeDraft(\"\")");
     expect(managerSource).toContain("requestAnimationFrame");
     expect(managerSource).toContain("section, activeConversation?.id, messages.length, messages.at(-1)?.content, sendingOfficeMessage, chatError");

@@ -42,4 +42,17 @@ describe("chat panel source", () => {
     expect(chatPanelSource).toContain("scrollTop = messageList.scrollHeight");
     expect(chatPanelSource).toContain("[messages.length, error]");
   });
+
+  it("stages files before sending so the user can add context", () => {
+    const chatPanelSource = readFileSync("src/components/ChatPanel.tsx", "utf8");
+    const stylesSource = readFileSync("src/styles.css", "utf8");
+
+    expect(chatPanelSource).toContain("pendingAttachments");
+    expect(chatPanelSource).toContain("addFiles");
+    expect(chatPanelSource).toContain("buildAttachmentMessage");
+    expect(chatPanelSource).toContain("onDragOver={handleDragOver}");
+    expect(chatPanelSource).toContain("message.displayContent ?? message.content");
+    expect(stylesSource).toContain(".composer-attachments");
+    expect(stylesSource).toContain(".composer-drop-active");
+  });
 });

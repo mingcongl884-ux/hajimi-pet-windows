@@ -35,6 +35,30 @@ describe("sendChatMessage", () => {
     expect(response.content).toBe("hello");
   });
 
+  it("sends hidden attachment content to providers without UI-only fields", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: "ok" } }]
+      })
+    });
+
+    await sendChatMessage(fetchMock, {
+      baseUrl: "https://api.example.com",
+      apiKey: "secret",
+      model: "gpt-4.1-mini",
+      systemPrompt: ""
+    }, [{
+      role: "user",
+      content: "full file content",
+      displayContent: "附件：note.txt",
+      fileOutputs: [{ path: "out.txt", name: "out.txt" }]
+    }]);
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.messages[1]).toEqual({ role: "user", content: "full file content" });
+  });
+
   it("does not duplicate v1 when the configured base URL already includes it", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -79,6 +103,24 @@ describe("sendChatMessage", () => {
       systemPrompt: ""
     }, [{ role: "user", content: "hi" }])).rejects.toMatchObject({
       code: "missing-api-key"
+    });
+  });
+
+  it("turns low-level fetch failures into actionable network errors", async () => {
+    const fetchError = new TypeError("fetch failed");
+    Object.assign(fetchError, {
+      cause: Object.assign(new Error("getaddrinfo ENOTFOUND api.xiaomimimo.com"), { code: "ENOTFOUND" })
+    });
+    const fetchMock = vi.fn().mockRejectedValue(fetchError);
+
+    await expect(sendChatMessage(fetchMock, {
+      baseUrl: "https://api.xiaomimimo.com/",
+      apiKey: "secret",
+      model: "mimo-v2.5-pro",
+      systemPrompt: ""
+    }, [{ role: "user", content: "hi" }])).rejects.toMatchObject({
+      code: "network-error",
+      message: expect.stringContaining("DNS")
     });
   });
 

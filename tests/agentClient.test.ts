@@ -58,6 +58,7 @@ describe("runAgentTask", () => {
     }, "Update the readme.");
 
     expect(response.content).toBe("README.md updated.");
+    expect(response.fileOutputs).toEqual([{ path: "README.md", name: "README.md", size: 3 }]);
     await expect(readFile(join(workspaceDir, "README.md"), "utf8")).resolves.toBe("new");
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).tool_choice).toBe("required");

@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
-import { fileToMessageContent } from "../src/lib/fileMessage";
+import { buildAttachmentMessage, fileToMessageContent, fileToPromptAttachment } from "../src/lib/fileMessage";
 
 describe("fileToMessageContent", () => {
   it("turns an uploaded text file into a prompt message", async () => {
@@ -8,6 +8,18 @@ describe("fileToMessageContent", () => {
 
     await expect(fileToMessageContent(file)).resolves.toContain("note.txt");
     await expect(fileToMessageContent(file)).resolves.toContain("hello xiaomi");
+  });
+
+  it("builds hidden prompt content while keeping chat display compact", async () => {
+    const file = new File(["hello xiaomi"], "note.txt", { type: "text/plain" });
+    const attachment = await fileToPromptAttachment(file);
+    const message = buildAttachmentMessage("请总结一下", [attachment]);
+
+    expect(message.content).toContain("请总结一下");
+    expect(message.content).toContain("hello xiaomi");
+    expect(message.displayContent).toContain("请总结一下");
+    expect(message.displayContent).toContain("note.txt");
+    expect(message.displayContent).not.toContain("hello xiaomi");
   });
 
   it("truncates large text file content", async () => {

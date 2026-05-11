@@ -398,12 +398,25 @@ export default function App() {
     }
   }
 
-  async function sendMessage(content: string) {
+  function normalizeUserMessage(input: string | ChatMessage): ChatMessage {
+    if (typeof input === "string") {
+      return { role: "user", content: input.trim() };
+    }
+    return {
+      ...input,
+      role: "user",
+      content: input.content.trim(),
+      displayContent: input.displayContent?.trim() || undefined
+    };
+  }
+
+  async function sendMessage(input: string | ChatMessage) {
+    const userMessage = normalizeUserMessage(input);
+    const content = userMessage.content;
     if (!state || !activeConversation || !content.trim()) {
       return;
     }
     markInteraction();
-    const userMessage: ChatMessage = { role: "user", content: content.trim() };
     const conversationId = activeConversation.id;
     const modeForRequest: PetConversationMode = agentMode ? "agent" : "chat";
     if (await runLocalPetInteraction(content, userMessage, conversationId, modeForRequest)) {
@@ -456,12 +469,13 @@ export default function App() {
     }
   }
 
-  async function sendOfficeMessage(content: string) {
+  async function sendOfficeMessage(input: string | ChatMessage) {
+    const userMessage = normalizeUserMessage(input);
+    const content = userMessage.content;
     if (!state || !activeConversation || !content.trim()) {
       return;
     }
     markInteraction();
-    const userMessage: ChatMessage = { role: "user", content: content.trim() };
     const conversationId = activeConversation.id;
     const modeForRequest: PetConversationMode = officeUsesWorkAgent ? "agent" : "chat";
     if (await runLocalPetInteraction(content, userMessage, conversationId, modeForRequest)) {
