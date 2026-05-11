@@ -80,9 +80,23 @@ export async function testChannelAdapter(channel: ChannelSettings): Promise<Chan
 async function launchVisiblePowerShell(command: string, title: string) {
   const envSetup = await buildOpenClawShellEnvironment();
   const titledCommand = `$Host.UI.RawUI.WindowTitle = ${quotePowerShellString(title)}; ${envSetup}; ${command}`;
-  const child = spawn("powershell.exe", ["-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", titledCommand], {
+  const encodedCommand = Buffer.from(titledCommand, "utf16le").toString("base64");
+  const child = spawn("cmd.exe", [
+    "/d",
+    "/s",
+    "/c",
+    "start",
+    "",
+    "powershell.exe",
+    "-NoExit",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-EncodedCommand",
+    encodedCommand
+  ], {
     detached: true,
-    windowsHide: false,
+    windowsHide: true,
     stdio: "ignore"
   });
   child.unref();
@@ -123,12 +137,15 @@ function buildWeixinInstallerCommand(channel: ChannelSettings): string {
     `} catch {`,
     `  Copy-Item -LiteralPath ${quotePowerShellString(openClawRoot)} -Destination $openClawPeer -Recurse -Force`,
     `}`,
+    `$loginScript = Join-Path $pluginTarget 'hajimi-weixin-login.mjs'`,
+    `Set-Content -LiteralPath $loginScript -Encoding UTF8 -Value ${quotePowerShellString(weixinDirectLoginScript())}`,
     `openclaw plugins registry --refresh`,
     `if ($LASTEXITCODE -ne 0) { Write-Host '插件索引刷新失败，继续尝试启用微信插件...' }`,
     `openclaw plugins enable openclaw-weixin`,
     `if ($LASTEXITCODE -ne 0) { throw '微信 ClawBot 插件启用失败。' }`,
     `Write-Host '正在生成微信二维码...'`,
-    `openclaw channels login --channel openclaw-weixin --verbose`,
+    `Write-Host 'Generating WeChat QR code...'`,
+    `& ${quotePowerShellString(resolveNodeRuntime())} $loginScript`,
     `if ($LASTEXITCODE -eq 0) {`,
     `  Write-Host '扫码流程结束，正在重启 OpenClaw Gateway...'`,
     `  openclaw gateway restart`,
@@ -136,6 +153,72 @@ function buildWeixinInstallerCommand(channel: ChannelSettings): string {
     `  Write-Host '扫码登录命令已退出。若上方已经出现二维码，请用微信扫码并确认授权。'`,
     `}`
   ].join("; ");
+}
+
+function weixinDirectLoginScript(): string {
+  return String.raw`import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";
+import { startWeixinLoginWithQr, displayQRCode, waitForWeixinLogin, DEFAULT_ILINK_BOT_TYPE } from "./dist/src/auth/login-qr.js";
+import { saveWeixinAccount, registerWeixinAccountId, clearStaleAccountsForUserId, triggerWeixinChannelReload, DEFAULT_BASE_URL } from "./dist/src/auth/accounts.js";
+import { clearContextTokensForAccount } from "./dist/src/messaging/inbound.js";
+
+const accountId = normalizeAccountId(process.env.HAJIMI_WEIXIN_ACCOUNT_ID || "default");
+
+function write(message) {
+  process.stdout.write(String(message) + "\n");
+}
+
+const startResult = await startWeixinLoginWithQr({
+  accountId,
+  apiBaseUrl: DEFAULT_BASE_URL,
+  botType: DEFAULT_ILINK_BOT_TYPE,
+  verbose: true,
+  force: true
+});
+
+if (!startResult.qrcodeUrl) {
+  throw new Error(startResult.message || "Failed to generate WeChat QR code.");
+}
+
+write("");
+write("Scan this QR code with WeChat, then confirm authorization on your phone.");
+write("");
+await displayQRCode(startResult.qrcodeUrl);
+write("");
+write("Waiting for WeChat authorization...");
+
+const waitResult = await waitForWeixinLogin({
+  sessionKey: startResult.sessionKey,
+  apiBaseUrl: DEFAULT_BASE_URL,
+  timeoutMs: 480000,
+  verbose: true,
+  botType: DEFAULT_ILINK_BOT_TYPE
+});
+
+if (waitResult.connected && waitResult.botToken && waitResult.accountId) {
+  const normalizedId = normalizeAccountId(waitResult.accountId);
+  saveWeixinAccount(normalizedId, {
+    token: waitResult.botToken,
+    baseUrl: waitResult.baseUrl,
+    userId: waitResult.userId
+  });
+  registerWeixinAccountId(normalizedId);
+  if (waitResult.userId) {
+    clearStaleAccountsForUserId(normalizedId, waitResult.userId, clearContextTokensForAccount);
+  }
+  await triggerWeixinChannelReload();
+  write("");
+  write("WeChat ClawBot connected.");
+  process.exit(0);
+}
+
+if (waitResult.alreadyConnected) {
+  write("");
+  write("This WeChat ClawBot is already connected.");
+  process.exit(0);
+}
+
+throw new Error(waitResult.message || "WeChat authorization did not complete.");
+`;
 }
 
 async function buildOpenClawShellEnvironment(): Promise<string> {

@@ -20,7 +20,12 @@ describe("channel adapter source", () => {
     expect(adapterSource).toContain("zod/package.json");
     expect(adapterSource).toContain("plugins registry --refresh");
     expect(adapterSource).toContain("plugins enable openclaw-weixin");
-    expect(adapterSource).toContain("channels login --channel openclaw-weixin --verbose");
+    expect(adapterSource).toContain("weixinDirectLoginScript");
+    expect(adapterSource).toContain("startWeixinLoginWithQr");
+    expect(adapterSource).toContain("waitForWeixinLogin");
+    expect(adapterSource).toContain("displayQRCode");
+    expect(adapterSource).toContain('"cmd.exe"');
+    expect(adapterSource).toContain('"-EncodedCommand"');
     expect(adapterSource).toContain("openclaw/openclaw.mjs");
     expect(adapterSource).toContain("node/package.json");
     expect(adapterSource).toContain("node/bin/node");

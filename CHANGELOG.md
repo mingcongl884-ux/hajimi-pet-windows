@@ -2,6 +2,11 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.40 - 2026-05-11
+
+- Fixed installed WeChat ClawBot QR startup by calling the bundled WeChat plugin login flow directly instead of the outer `openclaw channels login` command that could hang before printing a QR code.
+- Made the channel setup terminal launch through a Windows `cmd start` wrapper so the scan window is more reliably visible from the packaged Electron app.
+
 ## 0.1.39 - 2026-05-11
 
 - Added the delayed OpenClaw runtime dependencies required by WeChat channel registration and QR login to the packaged app.
