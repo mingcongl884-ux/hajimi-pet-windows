@@ -6,6 +6,7 @@ import type { RemoteNotice } from "../electron/settingsStore";
 import type { ChannelProvider } from "./lib/channels";
 import type { PetPlayCommand } from "./lib/petPlay";
 import type { PetMoveCommand } from "./lib/petMotion";
+import type { PetAction } from "./lib/petActions";
 import type { InstalledPet } from "./lib/petTypes";
 
 export type PetAppState = {
@@ -69,6 +70,7 @@ declare global {
       onStateChanged(callback: (state: PetAppState) => void): () => void;
       onPlayCommand(callback: (command: PetPlayCommand) => void): () => void;
       onOutsideInteraction(callback: () => void): () => void;
+      onExternalPetActions(callback: (actions: PetAction[]) => void): () => void;
     };
   }
 }

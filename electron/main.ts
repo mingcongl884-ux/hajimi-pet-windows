@@ -15,10 +15,13 @@ import { appendFile, cp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAgentTask } from "./agentClient.js";
+import { handleInboundChannelMessage } from "./channelBridge.js";
 import { startChannelAdapter, stopChannelAdapter, testChannelAdapter } from "./channelAdapters.js";
 import type { ChannelProvider } from "../src/lib/channels.js";
+import type { ChannelMessage } from "../src/lib/channelRouter.js";
 import { runClaudeAgentTask, testClaudeAgentModel } from "./claudeAgentClient.js";
 import { sendChatMessage, type ChatMessage } from "./chatClient.js";
+import type { PetAction } from "../src/lib/petActions.js";
 import {
   checkForAppUpdates,
   checkRemoteNotices,
@@ -34,6 +37,7 @@ import { planPetPlayStep } from "../src/lib/petPlay.js";
 import type { InstalledPet, PetManifest } from "../src/lib/petTypes.js";
 import { PET_WINDOW_SIZE, clampPetWindowPosition, getPetVisibleRect } from "../src/lib/petWindowGeometry.js";
 import { removeProject, switchProject, upsertProject } from "../src/lib/projects.js";
+import { startWeixinMessageBridge, type WeixinMessageBridgeStop, type WeixinMessageReply } from "./weixinMessageBridge.js";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
 const PET_ASSET_PROTOCOL = "pet-asset";
@@ -48,6 +52,9 @@ let isQuitting = false;
 let petPlayInterval: NodeJS.Timeout | undefined;
 let petPlayTick = 0;
 let currentPetScale = DEFAULT_SETTINGS.petScale;
+let stopWeixinBridge: WeixinMessageBridgeStop | undefined;
+let channelMessageQueue = Promise.resolve();
+const channelRuntimeStatusKeys = new Map<ChannelProvider, string>();
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -66,6 +73,7 @@ async function createWindows() {
   await createManagerWindow();
   createTray();
   startPetPlayLoop();
+  syncChannelBridges(settings);
 }
 
 async function createPetWindow(slot: number, settings: AppSettings) {
@@ -234,6 +242,7 @@ function registerIpc() {
   ipcMain.handle("pet:save-settings", async (_event, settings: AppSettings) => {
     currentPetScale = settings.petScale;
     await settingsStore.saveSettings(settings);
+    syncChannelBridges(settings);
     refreshTray();
     return broadcastState();
   });
@@ -244,7 +253,9 @@ function registerIpc() {
       throw new Error("通道不存在。");
     }
     const result = await startChannelAdapter(channel);
-    await settingsStore.saveSettings(updateChannelStatus(settings, provider, result.status));
+    const nextSettings = updateChannelStatus(settings, provider, result.status, true);
+    await settingsStore.saveSettings(nextSettings);
+    syncChannelBridges(nextSettings);
     await broadcastState();
     return result;
   });
@@ -255,7 +266,9 @@ function registerIpc() {
       throw new Error("通道不存在。");
     }
     const result = await stopChannelAdapter(channel);
-    await settingsStore.saveSettings(updateChannelStatus(settings, provider, result.status));
+    const nextSettings = updateChannelStatus(settings, provider, result.status, false);
+    await settingsStore.saveSettings(nextSettings);
+    syncChannelBridges(nextSettings);
     await broadcastState();
     return result;
   });
@@ -497,12 +510,98 @@ function setPetWindowPosition(slot: number, x: number, y: number) {
 function updateChannelStatus(
   settings: AppSettings,
   provider: ChannelProvider,
-  status: "disabled" | "starting" | "connected" | "error"
+  status: "disabled" | "starting" | "connected" | "error",
+  enabled?: boolean
 ): AppSettings {
   return {
     ...settings,
-    channels: settings.channels.map((channel) => channel.provider === provider ? { ...channel, status } : channel)
+    channels: settings.channels.map((channel) => channel.provider === provider
+      ? { ...channel, status, enabled: enabled ?? channel.enabled }
+      : channel)
   };
+}
+
+function syncChannelBridges(settings: AppSettings) {
+  const wechatChannel = settings.channels.find((channel) => channel.provider === "wechat");
+  if (wechatChannel?.enabled && !stopWeixinBridge) {
+    stopWeixinBridge = startWeixinMessageBridge({
+      onMessage: (message, reply) => enqueueInboundChannelMessage(message, reply),
+      onStatus: (status, message) => {
+        void updateChannelRuntimeStatus("wechat", status, message);
+      },
+      onLog: (message) => {
+        void writeRuntimeLog(message);
+      }
+    });
+    return;
+  }
+
+  if (!wechatChannel?.enabled && stopWeixinBridge) {
+    stopWeixinBridge();
+    stopWeixinBridge = undefined;
+  }
+}
+
+function enqueueInboundChannelMessage(
+  message: ChannelMessage,
+  reply: WeixinMessageReply
+) {
+  channelMessageQueue = channelMessageQueue
+    .then(() => processInboundChannelMessage(message, reply))
+    .catch((error) => writeRuntimeLog(`channel message failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`));
+  return channelMessageQueue;
+}
+
+async function processInboundChannelMessage(
+  message: ChannelMessage,
+  reply: WeixinMessageReply
+) {
+  const settings = await settingsStore.loadSettings();
+  const result = await handleInboundChannelMessage(settings, message, async (request) => {
+    const model = getModelSettingsById(request.settings, request.settings.activeAgentModelId, "agent");
+    if (model.provider === "claude-agent") {
+      if (!request.settings.agent.workspaceDir.trim()) {
+        return { role: "assistant", content: "先在哈基Mi 里选择一个办公区，我才能处理这类办公任务。" };
+      }
+      return runClaudeAgentTask(model, request.settings.agent, request.text.trim());
+    }
+    return sendChatMessage(fetch, model, request.messages);
+  });
+
+  await settingsStore.saveSettings(result.settings);
+  await broadcastState();
+  if (result.response?.petActions?.length) {
+    broadcastExternalPetActions(result.response.petActions);
+  }
+  if (result.reply) {
+    await reply(result.reply);
+  }
+}
+
+function broadcastExternalPetActions(actions: PetAction[]) {
+  for (const window of petWindows.values()) {
+    window.webContents.send("pet:external-actions", actions);
+  }
+}
+
+async function updateChannelRuntimeStatus(
+  provider: ChannelProvider,
+  status: "starting" | "connected" | "error",
+  message: string
+) {
+  const key = `${status}:${message}`;
+  if (channelRuntimeStatusKeys.get(provider) === key) {
+    return;
+  }
+  channelRuntimeStatusKeys.set(provider, key);
+  await writeRuntimeLog(`channel ${provider} ${status}: ${message}`);
+  const settings = await settingsStore.loadSettings();
+  const channel = settings.channels.find((item) => item.provider === provider);
+  if (!channel?.enabled) {
+    return;
+  }
+  await settingsStore.saveSettings(updateChannelStatus(settings, provider, status));
+  await broadcastState();
 }
 
 async function reconcilePetWindows(settings: AppSettings) {
@@ -738,4 +837,6 @@ app.on("before-quit", () => {
   if (petPlayInterval) {
     clearInterval(petPlayInterval);
   }
+  stopWeixinBridge?.();
+  stopWeixinBridge = undefined;
 });

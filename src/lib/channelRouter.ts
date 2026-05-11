@@ -1,6 +1,7 @@
 import type { AppSettings, PetConversationMode } from "../../electron/settingsStore.js";
-import type { ChannelPeerKind, ChannelProvider } from "./channels.js";
+import type { ChannelPeer, ChannelPeerKind, ChannelProvider } from "./channels.js";
 import { findAllowedPeer } from "./channels.js";
+import { ensureActiveConversation } from "./conversations.js";
 
 export type ChannelAttachment = {
   id: string;
@@ -21,7 +22,13 @@ export type ChannelMessage = {
 export type ChannelRouteDecision =
   | { type: "pairing-required"; reply: string }
   | { type: "ignored"; reply?: string }
-  | { type: "route"; mode: PetConversationMode; conversationId: string; text: string };
+  | {
+      type: "route";
+      mode: PetConversationMode;
+      conversationId: string;
+      text: string;
+      peerToAllow?: ChannelPeer;
+    };
 
 export function routeChannelMessage(settings: AppSettings, message: ChannelMessage): ChannelRouteDecision {
   const channel = settings.channels.find((item) => item.provider === message.channel);
@@ -30,21 +37,27 @@ export function routeChannelMessage(settings: AppSettings, message: ChannelMessa
   }
 
   const allowed = findAllowedPeer(settings.channels, message.channel, message.peerKind, message.peerId);
-  if (!allowed) {
+  if (!allowed && channel.accessMode !== "pairing") {
     return {
       type: "pairing-required",
       reply: `需要先在哈基Mi的通道页完成配对：${message.channel}:${message.peerId}`
     };
   }
 
+  const prepared = ensureActiveConversation(settings, message.receivedAt);
+
   return {
     type: "route",
     mode: channel.routeMode,
-    conversationId: `channel-${message.channel}-${message.peerKind}-${sanitizeId(message.peerId)}`,
-    text: message.text
+    conversationId: prepared.activeConversationId,
+    text: message.text,
+    peerToAllow: allowed
+      ? undefined
+      : {
+        id: message.peerId,
+        channel: message.channel,
+        kind: message.peerKind,
+        pairedAt: message.receivedAt
+      }
   };
-}
-
-function sanitizeId(id: string): string {
-  return id.replace(/[^a-z0-9_-]+/gi, "_").slice(0, 80);
 }

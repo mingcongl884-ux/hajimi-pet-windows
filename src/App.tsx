@@ -84,6 +84,15 @@ export default function App() {
     if (mode === "manager") {
       return;
     }
+    return window.petApp.onExternalPetActions((actions) => {
+      void applyPetActions(actions);
+    });
+  }, [mode, state]);
+
+  useEffect(() => {
+    if (mode === "manager") {
+      return;
+    }
 
     const dismissOnOutsidePointerDown = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : undefined;

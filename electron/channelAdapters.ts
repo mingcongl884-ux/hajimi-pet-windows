@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
-import { app } from "electron";
-import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { app } from "electron";
 import type { ChannelProvider, ChannelSettings } from "../src/lib/channels.js";
+import { hasBundledWeixinAccount } from "./weixinMessageBridge.js";
 
 const require = createRequire(import.meta.url);
 const WEIXIN_PLUGIN_PACKAGE = "@tencent-weixin/openclaw-weixin/package.json";
@@ -19,48 +20,50 @@ export type ChannelAdapterResult = {
 };
 
 export async function startChannelAdapter(channel: ChannelSettings): Promise<ChannelAdapterResult> {
-  const { provider } = channel;
-  if (provider === "feishu") {
+  if (channel.provider === "feishu") {
     if (!channel.feishu?.appId.trim() || !channel.feishu.appSecret.trim()) {
-      return { provider, status: "error", message: "请先填写飞书 App ID 和 App Secret。" };
+      return { provider: channel.provider, status: "error", message: "请先填写飞书 App ID 和 App Secret。" };
     }
     await launchVisiblePowerShell("openclaw channels add; openclaw gateway status", "哈基Mi 飞书通道");
     return {
-      provider,
+      provider: channel.provider,
       status: "starting",
-      message: "已打开飞书通道配置终端。完成 openclaw channels add 后，在飞书开放平台启用 WebSocket 长连接并添加 im.message.receive_v1。"
+      message: "已打开飞书通道配置终端。完成配置后点击测试通道。"
     };
   }
 
-  if (provider === "wechat") {
-    const command = buildWeixinInstallerCommand(channel);
-    await launchVisiblePowerShell(command, "哈基Mi 微信ClawBot");
+  if (channel.provider === "wechat") {
+    await launchVisiblePowerShell(buildWeixinInstallerCommand(channel), "哈基Mi 微信 ClawBot");
     return {
-      provider,
+      provider: channel.provider,
       status: "starting",
-      message: "已打开微信 ClawBot 内置安装/扫码终端。用微信扫描终端二维码并确认授权后，再点“测试通道”检查状态。"
+      message: "已打开微信 ClawBot 内置安装/扫码终端。扫码授权后，哈基Mi 会自动把微信消息接入当前会话。"
     };
   }
 
-  return { provider, status: "error", message: "未知通道。" };
+  return { provider: channel.provider, status: "error", message: "未知通道。" };
 }
 
 export async function stopChannelAdapter(channel: ChannelSettings): Promise<ChannelAdapterResult> {
-  if (channel.provider === "wechat") {
-    await runOpenClaw(["config", "set", "plugins.entries.openclaw-weixin.enabled", "false"], 30_000);
-    await runOpenClaw(["gateway", "restart"], 30_000);
-  }
   return { provider: channel.provider, status: "disabled", message: `${channel.displayName} 已停止。` };
 }
 
 export async function testChannelAdapter(channel: ChannelSettings): Promise<ChannelAdapterResult> {
+  if (channel.provider === "wechat" && hasBundledWeixinAccount()) {
+    return {
+      provider: channel.provider,
+      status: "connected",
+      message: "已检测到微信 ClawBot 登录凭据，哈基Mi 会把微信消息接入当前聊天会话。"
+    };
+  }
+
   const version = await runOpenClaw(["--version"], 20_000);
   if (version.code !== 0) {
     return {
       provider: channel.provider,
       status: "error",
       message: version.usedBundled
-        ? "已找到内置 OpenClaw，但启动失败。请重新打开哈基Mi后再试，或查看输出。"
+        ? "已找到内置 OpenClaw，但启动失败。请重新打开哈基Mi 后再试。"
         : "没有检测到内置或系统 OpenClaw。请重新安装哈基Mi，或确认 openclaw 在 PATH 中。",
       output: version.output
     };
@@ -72,7 +75,7 @@ export async function testChannelAdapter(channel: ChannelSettings): Promise<Chan
   return {
     provider: channel.provider,
     status: connected ? "connected" : "starting",
-    message: connected ? `${channel.displayName} 通道已被 OpenClaw 识别。` : `${channel.displayName} 通道还未完成连接。`,
+    message: connected ? `${channel.displayName} 通道已被识别。` : `${channel.displayName} 通道还未完成连接。`,
     output: [version.output, status.output].filter(Boolean).join("\n")
   };
 }
@@ -114,44 +117,42 @@ function buildWeixinInstallerCommand(channel: ChannelSettings): string {
   }
 
   return [
-    `$ErrorActionPreference = 'Stop'`,
-    `function Remove-PathSafely([string]$Path) { if (Test-Path -LiteralPath $Path) { $item = Get-Item -LiteralPath $Path -Force; if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Remove-Item -LiteralPath $Path -Force } else { Remove-Item -LiteralPath $Path -Recurse -Force } } }`,
-    `Write-Host '正在准备内置微信 ClawBot 插件...'`,
-    `New-Item -ItemType Directory -Force -Path $env:OPENCLAW_STATE_DIR | Out-Null`,
-    `$extensionsDir = Join-Path $env:OPENCLAW_STATE_DIR 'extensions'`,
-    `$pluginTarget = Join-Path $extensionsDir 'openclaw-weixin'`,
-    `$depsTarget = Join-Path $pluginTarget 'node_modules'`,
-    `New-Item -ItemType Directory -Force -Path $extensionsDir | Out-Null`,
-    `Remove-PathSafely (Join-Path $pluginTarget 'node_modules\\openclaw')`,
-    `Remove-PathSafely $pluginTarget`,
+    "$ErrorActionPreference = 'Stop'",
+    "function Remove-PathSafely([string]$Path) { if (Test-Path -LiteralPath $Path) { $item = Get-Item -LiteralPath $Path -Force; if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Remove-Item -LiteralPath $Path -Force } else { Remove-Item -LiteralPath $Path -Recurse -Force } } }",
+    "Write-Host 'Preparing bundled WeChat ClawBot plugin...'",
+    "New-Item -ItemType Directory -Force -Path $env:OPENCLAW_STATE_DIR | Out-Null",
+    "$extensionsDir = Join-Path $env:OPENCLAW_STATE_DIR 'extensions'",
+    "$pluginTarget = Join-Path $extensionsDir 'openclaw-weixin'",
+    "$depsTarget = Join-Path $pluginTarget 'node_modules'",
+    "New-Item -ItemType Directory -Force -Path $extensionsDir | Out-Null",
+    "Remove-PathSafely (Join-Path $pluginTarget 'node_modules\\openclaw')",
+    "Remove-PathSafely $pluginTarget",
     `Copy-Item -LiteralPath ${quotePowerShellString(pluginRoot)} -Destination $extensionsDir -Recurse -Force`,
-    `New-Item -ItemType Directory -Force -Path $depsTarget | Out-Null`,
-    `Remove-PathSafely (Join-Path $depsTarget 'qrcode-terminal')`,
+    "New-Item -ItemType Directory -Force -Path $depsTarget | Out-Null",
+    "Remove-PathSafely (Join-Path $depsTarget 'qrcode-terminal')",
     `Copy-Item -LiteralPath ${quotePowerShellString(qrcodeRoot)} -Destination $depsTarget -Recurse -Force`,
-    `Remove-PathSafely (Join-Path $depsTarget 'zod')`,
+    "Remove-PathSafely (Join-Path $depsTarget 'zod')",
     `Copy-Item -LiteralPath ${quotePowerShellString(zodRoot)} -Destination $depsTarget -Recurse -Force`,
-    `$openClawPeer = Join-Path $depsTarget 'openclaw'`,
-    `Remove-PathSafely $openClawPeer`,
-    `try {`,
+    "$openClawPeer = Join-Path $depsTarget 'openclaw'",
+    "Remove-PathSafely $openClawPeer",
+    "try {",
     `  New-Item -ItemType Junction -Path $openClawPeer -Target ${quotePowerShellString(openClawRoot)} -Force | Out-Null`,
-    `} catch {`,
+    "} catch {",
     `  Copy-Item -LiteralPath ${quotePowerShellString(openClawRoot)} -Destination $openClawPeer -Recurse -Force`,
-    `}`,
-    `$loginScript = Join-Path $pluginTarget 'hajimi-weixin-login.mjs'`,
+    "}",
+    "$loginScript = Join-Path $pluginTarget 'hajimi-weixin-login.mjs'",
     `Set-Content -LiteralPath $loginScript -Encoding UTF8 -Value ${quotePowerShellString(weixinDirectLoginScript())}`,
-    `openclaw plugins registry --refresh`,
-    `if ($LASTEXITCODE -ne 0) { Write-Host '插件索引刷新失败，继续尝试启用微信插件...' }`,
-    `openclaw plugins enable openclaw-weixin`,
-    `if ($LASTEXITCODE -ne 0) { throw '微信 ClawBot 插件启用失败。' }`,
-    `Write-Host '正在生成微信二维码...'`,
-    `Write-Host 'Generating WeChat QR code...'`,
+    "openclaw plugins registry --refresh",
+    "if ($LASTEXITCODE -ne 0) { Write-Host 'Plugin registry refresh failed; continuing...' }",
+    "openclaw plugins enable openclaw-weixin",
+    "if ($LASTEXITCODE -ne 0) { throw 'Failed to enable WeChat ClawBot plugin.' }",
+    "Write-Host 'Generating WeChat QR code...'",
     `& ${quotePowerShellString(resolveNodeRuntime())} $loginScript`,
-    `if ($LASTEXITCODE -eq 0) {`,
-    `  Write-Host '扫码流程结束，正在重启 OpenClaw Gateway...'`,
-    `  openclaw gateway restart`,
-    `} else {`,
-    `  Write-Host '扫码登录命令已退出。若上方已经出现二维码，请用微信扫码并确认授权。'`,
-    `}`
+    "if ($LASTEXITCODE -eq 0) {",
+    "  Write-Host 'Scan complete. HaJiMi will receive WeChat messages directly into the current chat.'",
+    "} else {",
+    "  Write-Host 'Login command exited. If a QR code was shown, scan it with WeChat and confirm authorization.'",
+    "}"
   ].join("; ");
 }
 
@@ -320,7 +321,7 @@ function resolveBundledNodeRuntime(): string | undefined {
 
 function resolveBundledNodeModulesRoots(): string[] {
   const roots: string[] = [];
-  // process.resourcesPath points to the packaged Electron resources directory.
+  // Keep packaged resolution aligned with process.resourcesPath.
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
   if (resourcesPath) {
     roots.push(join(resourcesPath, "app.asar.unpacked", "node_modules"));

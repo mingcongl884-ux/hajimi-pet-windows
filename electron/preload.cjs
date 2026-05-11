@@ -42,5 +42,10 @@ contextBridge.exposeInMainWorld("petApp", {
     const listener = () => callback();
     ipcRenderer.on("pet:outside-interaction", listener);
     return () => ipcRenderer.off("pet:outside-interaction", listener);
+  },
+  onExternalPetActions: (callback) => {
+    const listener = (_event, actions) => callback(actions);
+    ipcRenderer.on("pet:external-actions", listener);
+    return () => ipcRenderer.off("pet:external-actions", listener);
   }
 });

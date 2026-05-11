@@ -5,6 +5,7 @@ import type { ChannelProvider } from "../src/lib/channels.js";
 import type { PetAppState, PetWindowBounds } from "../src/global.js";
 import type { PetMoveCommand } from "../src/lib/petMotion.js";
 import type { PetPlayCommand } from "../src/lib/petPlay.js";
+import type { PetAction } from "../src/lib/petActions.js";
 
 const petSlot = Number(new URLSearchParams(globalThis.location.search).get("slot") ?? "0");
 
@@ -49,5 +50,10 @@ contextBridge.exposeInMainWorld("petApp", {
     const listener = () => callback();
     ipcRenderer.on("pet:outside-interaction", listener);
     return () => ipcRenderer.off("pet:outside-interaction", listener);
+  },
+  onExternalPetActions: (callback: (actions: PetAction[]) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, actions: PetAction[]) => callback(actions);
+    ipcRenderer.on("pet:external-actions", listener);
+    return () => ipcRenderer.off("pet:external-actions", listener);
   }
 });

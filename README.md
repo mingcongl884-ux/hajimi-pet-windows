@@ -112,6 +112,7 @@ Installers are generated in `dist/`.
 | 0.1.38 | `HaJiMi-Setup-0.1.38.exe` | Fixes packaged WeChat/OpenClaw detection by resolving HaJiMi's bundled OpenClaw and Node runtime from the installed resources directory. |
 | 0.1.39 | `HaJiMi-Setup-0.1.39.exe` | Bundles the delayed OpenClaw dependencies needed for WeChat plugin registration and QR login so the scan terminal can open without a separate OpenClaw install. |
 | 0.1.40 | `HaJiMi-Setup-0.1.40.exe` | Calls the bundled WeChat ClawBot QR login flow directly and opens the scan terminal through Windows `cmd start` so installed apps can show the QR code reliably. |
+| 0.1.41 | `HaJiMi-Setup-0.1.41.exe` | Adds HaJiMi's direct WeChat message bridge so ClawBot messages enter the current chat/office conversation, auto-pair senders, reply through the selected model, and trigger pet actions. |
 
 Use the latest installer unless you need to compare a previous build.
 

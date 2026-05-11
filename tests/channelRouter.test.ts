@@ -7,7 +7,7 @@ describe("channel router", () => {
     const decision = routeChannelMessage({
       ...DEFAULT_SETTINGS,
       channels: DEFAULT_SETTINGS.channels.map((channel) => channel.provider === "feishu"
-        ? { ...channel, enabled: true }
+        ? { ...channel, enabled: true, accessMode: "allowlist" as const }
         : channel)
     }, {
       channel: "feishu",
@@ -25,9 +25,19 @@ describe("channel router", () => {
     expect(decision.reply).toContain("配对");
   });
 
-  it("routes allowed peers to chat or agent mode", () => {
+  it("routes allowed peers to the current active conversation", () => {
     const settings = {
       ...DEFAULT_SETTINGS,
+      activeConversationId: "office-active",
+      conversations: [
+        {
+          id: "office-active",
+          title: "办公会话",
+          mode: "chat" as const,
+          messages: [],
+          updatedAt: "2026-05-09T00:00:00.000Z"
+        }
+      ],
       channels: DEFAULT_SETTINGS.channels.map((channel) => channel.provider === "wechat"
         ? {
           ...channel,
@@ -47,6 +57,45 @@ describe("channel router", () => {
       receivedAt: "2026-05-09T00:00:00.000Z"
     });
 
-    expect(decision).toMatchObject({ type: "route", mode: "agent", conversationId: "channel-wechat-direct-wx_1" });
+    expect(decision).toMatchObject({ type: "route", mode: "agent", conversationId: "office-active" });
+  });
+
+  it("auto pairs new peers when a channel is in pairing mode", () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      activeConversationId: "office-active",
+      conversations: [
+        {
+          id: "office-active",
+          title: "办公会话",
+          mode: "chat" as const,
+          messages: [],
+          updatedAt: "2026-05-09T00:00:00.000Z"
+        }
+      ],
+      channels: DEFAULT_SETTINGS.channels.map((channel) => channel.provider === "wechat"
+        ? { ...channel, enabled: true, accessMode: "pairing" as const }
+        : channel)
+    };
+
+    const decision = routeChannelMessage(settings, {
+      channel: "wechat",
+      peerId: "wx_new",
+      peerKind: "direct",
+      text: "同步到当前会话",
+      attachments: [],
+      receivedAt: "2026-05-09T00:00:00.000Z"
+    });
+
+    expect(decision).toMatchObject({
+      type: "route",
+      conversationId: "office-active",
+      peerToAllow: {
+        id: "wx_new",
+        channel: "wechat",
+        kind: "direct",
+        pairedAt: "2026-05-09T00:00:00.000Z"
+      }
+    });
   });
 });

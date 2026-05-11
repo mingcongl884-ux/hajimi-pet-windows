@@ -2,6 +2,13 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.41 - 2026-05-11
+
+- Added a direct built-in WeChat ClawBot message bridge so WeChat messages enter the currently selected HaJiMi chat or office conversation and replies are sent back to WeChat.
+- Auto-pair first-time WeChat senders while the channel is in pairing mode, and route future messages through the same current-conversation pipeline.
+- Forward pet action tool calls from WeChat-triggered model replies to the visible desktop pet, so remote chat can still move, speak, or change the pet.
+- Cleaned the channel adapter source and updated WeChat setup copy to reflect that HaJiMi can receive messages directly after QR login.
+
 ## 0.1.40 - 2026-05-11
 
 - Fixed installed WeChat ClawBot QR startup by calling the bundled WeChat plugin login flow directly instead of the outer `openclaw channels login` command that could hang before printing a QR code.
