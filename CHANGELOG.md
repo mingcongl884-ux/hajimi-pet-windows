@@ -2,6 +2,12 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.42 - 2026-05-11
+
+- Fixed installed WeChat ClawBot QR startup by writing the setup flow to a short PowerShell script file before opening it, avoiding Windows command-line truncation from the previous encoded command.
+- Moved the direct WeChat message bridge into HaJiMi's bundled Node 22 worker process so the current chat/office conversation bridge avoids Electron's `webidl.util.markAsUncloneable` runtime incompatibility.
+- Kept the WeChat bridge reply path connected to the selected model and pet action pipeline after QR login.
+
 ## 0.1.41 - 2026-05-11
 
 - Added a direct built-in WeChat ClawBot message bridge so WeChat messages enter the currently selected HaJiMi chat or office conversation and replies are sent back to WeChat.

@@ -82,8 +82,12 @@ export async function testChannelAdapter(channel: ChannelSettings): Promise<Chan
 
 async function launchVisiblePowerShell(command: string, title: string) {
   const envSetup = await buildOpenClawShellEnvironment();
-  const titledCommand = `$Host.UI.RawUI.WindowTitle = ${quotePowerShellString(title)}; ${envSetup}; ${command}`;
-  const encodedCommand = Buffer.from(titledCommand, "utf16le").toString("base64");
+  const scriptPath = await writePowerShellLaunchScript([
+    "$ErrorActionPreference = 'Stop'",
+    `$Host.UI.RawUI.WindowTitle = ${quotePowerShellString(title)}`,
+    envSetup,
+    command
+  ].join("\r\n"), title);
   const child = spawn("cmd.exe", [
     "/d",
     "/s",
@@ -95,14 +99,25 @@ async function launchVisiblePowerShell(command: string, title: string) {
     "-NoProfile",
     "-ExecutionPolicy",
     "Bypass",
-    "-EncodedCommand",
-    encodedCommand
+    "-File",
+    scriptPath
   ], {
     detached: true,
     windowsHide: true,
     stdio: "ignore"
   });
   child.unref();
+}
+
+async function writePowerShellLaunchScript(script: string, title: string): Promise<string> {
+  const scriptDir = join(app.getPath("userData"), "channel-scripts");
+  await mkdir(scriptDir, { recursive: true });
+  const safeName = title.toLowerCase().includes("wechat") || title.includes("微信")
+    ? "hajimi-weixin-setup.ps1"
+    : "hajimi-channel-setup.ps1";
+  const scriptPath = join(scriptDir, safeName);
+  await writeFile(scriptPath, script, "utf8");
+  return scriptPath;
 }
 
 function buildWeixinInstallerCommand(channel: ChannelSettings): string {

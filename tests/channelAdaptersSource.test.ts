@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const adapterSource = readFileSync(join(process.cwd(), "electron", "channelAdapters.ts"), "utf8");
+const weixinBridgeSource = readFileSync(join(process.cwd(), "electron", "weixinMessageBridge.ts"), "utf8");
 const mainSource = readFileSync(join(process.cwd(), "electron", "main.ts"), "utf8");
 const preloadSource = readFileSync(join(process.cwd(), "electron", "preload.ts"), "utf8");
 const preloadCjsSource = readFileSync(join(process.cwd(), "electron", "preload.cjs"), "utf8");
@@ -25,7 +26,9 @@ describe("channel adapter source", () => {
     expect(adapterSource).toContain("waitForWeixinLogin");
     expect(adapterSource).toContain("displayQRCode");
     expect(adapterSource).toContain('"cmd.exe"');
-    expect(adapterSource).toContain('"-EncodedCommand"');
+    expect(adapterSource).toContain('"-File"');
+    expect(adapterSource).toContain("writePowerShellLaunchScript");
+    expect(adapterSource).toContain("hajimi-weixin-setup.ps1");
     expect(adapterSource).toContain("openclaw/openclaw.mjs");
     expect(adapterSource).toContain("node/package.json");
     expect(adapterSource).toContain("node/bin/node");
@@ -40,6 +43,9 @@ describe("channel adapter source", () => {
     expect(adapterSource).toContain("没有检测到内置或系统 OpenClaw");
     expect(adapterSource).toContain('"channels", "status", "--probe"');
     expect(adapterSource).toContain("launchVisiblePowerShell");
+    expect(weixinBridgeSource).toContain("hajimi-weixin-bridge-worker.mjs");
+    expect(weixinBridgeSource).toContain("HAJIMI_WEIXIN_PLUGIN_ROOT");
+    expect(weixinBridgeSource).toContain("spawn(resolveNodeRuntime()");
   });
 
   it("exposes channel IPC to the renderer", () => {
