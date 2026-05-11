@@ -46,6 +46,10 @@ describe("channel adapter source", () => {
     expect(weixinBridgeSource).toContain("hajimi-weixin-bridge-worker.mjs");
     expect(weixinBridgeSource).toContain("HAJIMI_WEIXIN_PLUGIN_ROOT");
     expect(weixinBridgeSource).toContain("spawn(resolveNodeRuntime()");
+    expect(adapterSource).toContain("Using existing WeChat ClawBot plugin");
+    expect(adapterSource).not.toContain("Remove-PathSafely $pluginTarget");
+    expect(mainSource).toContain("waitForChannelBridgeShutdown");
+    expect(mainSource).toContain("stopWeixinBridge?.()");
   });
 
   it("exposes channel IPC to the renderer", () => {

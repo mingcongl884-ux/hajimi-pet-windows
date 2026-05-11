@@ -45,6 +45,7 @@ export async function handleInboundChannelMessage(
     decision.mode,
     message.receivedAt
   );
+  const startedAt = Date.now();
   const response = await responder({
     conversationId: decision.conversationId,
     text: decision.text,
@@ -55,7 +56,7 @@ export async function handleInboundChannelMessage(
   const nextSettings = appendConversationMessages(
     withUserMessage,
     decision.conversationId,
-    [{ role: "assistant", content: response.content }],
+    [{ role: "assistant", content: response.content, durationMs: response.durationMs ?? Date.now() - startedAt }],
     decision.mode,
     new Date().toISOString()
   );

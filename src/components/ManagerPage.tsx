@@ -716,6 +716,9 @@ export default function ManagerPage({
             )}
             {messages.map((message, index) => (
               <article className={message.role === "user" ? "codex-message user" : "codex-message assistant"} key={index}>
+                {message.role === "assistant" && message.durationMs !== undefined && (
+                  <span className="codex-message-meta">{formatProcessingTime(message.durationMs)}</span>
+                )}
                 <p>{message.content}</p>
               </article>
             ))}
@@ -1322,4 +1325,12 @@ export default function ManagerPage({
       )}
     </main>
   );
+}
+
+function formatProcessingTime(durationMs: number): string {
+  const seconds = Math.max(1, Math.round(durationMs / 1000));
+  if (seconds < 60) {
+    return `已处理 ${seconds}s`;
+  }
+  return `已处理 ${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }

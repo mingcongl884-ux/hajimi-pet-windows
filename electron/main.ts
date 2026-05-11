@@ -252,6 +252,9 @@ function registerIpc() {
     if (!channel) {
       throw new Error("通道不存在。");
     }
+    if (provider === "wechat") {
+      await waitForChannelBridgeShutdown();
+    }
     const result = await startChannelAdapter(channel);
     const nextSettings = updateChannelStatus(settings, provider, result.status, true);
     await settingsStore.saveSettings(nextSettings);
@@ -540,6 +543,12 @@ function syncChannelBridges(settings: AppSettings) {
     stopWeixinBridge();
     stopWeixinBridge = undefined;
   }
+}
+
+async function waitForChannelBridgeShutdown() {
+  stopWeixinBridge?.();
+  stopWeixinBridge = undefined;
+  await new Promise((resolve) => setTimeout(resolve, 800));
 }
 
 function enqueueInboundChannelMessage(

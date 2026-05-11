@@ -108,6 +108,22 @@ describe("conversation helpers", () => {
     expect(settings.conversations[0].messages).toHaveLength(2);
   });
 
+  it("keeps assistant processing duration on conversation messages", () => {
+    const settings = appendConversationMessages(
+      ensureActiveConversation(baseSettings, "2026-05-08T10:00:00.000Z"),
+      "default",
+      [{ role: "assistant", content: "Done.", durationMs: 45600 }],
+      "chat",
+      "2026-05-08T10:02:00.000Z"
+    );
+
+    expect(settings.conversations[0].messages[0]).toMatchObject({
+      role: "assistant",
+      content: "Done.",
+      durationMs: 45600
+    });
+  });
+
   it("keeps at least one conversation after deleting the active one", () => {
     const withDefault = ensureActiveConversation(baseSettings, "2026-05-08T10:00:00.000Z");
     const withSecond = createConversation(withDefault, "chat", "2026-05-08T10:01:00.000Z", "c-2");

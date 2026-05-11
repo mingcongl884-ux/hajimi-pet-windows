@@ -40,6 +40,11 @@ describe("channel bridge", () => {
 
     expect(result.reply).toBe("已经接到当前办公会话。");
     expect(result.settings.activeConversationId).toBe("office-active");
+    const bridgeMessages = result.settings.conversations.find((item) => item.id === "office-active")?.messages;
+    expect(bridgeMessages?.[1]?.durationMs).toEqual(expect.any(Number));
+    if (bridgeMessages?.[1]) {
+      delete bridgeMessages[1].durationMs;
+    }
     expect(result.settings.conversations.find((item) => item.id === "office-active")?.messages).toEqual([
       { role: "user", content: "帮我看当前项目" },
       { role: "assistant", content: "已经接到当前办公会话。" }

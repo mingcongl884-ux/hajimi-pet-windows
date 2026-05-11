@@ -154,9 +154,12 @@ export default function ChatPanel({
           <p className="muted">{agentMode ? "让哈基Mi处理当前办公区里的事。" : "喵？"}</p>
         )}
         {messages.map((message, index) => (
-          <p className={message.role === "user" ? "message user" : "message assistant"} key={index}>
-            {message.content}
-          </p>
+          <div className={message.role === "user" ? "message user" : "message assistant"} key={index}>
+            {message.role === "assistant" && message.durationMs !== undefined && (
+              <span className="message-meta">{formatProcessingTime(message.durationMs)}</span>
+            )}
+            <span>{message.content}</span>
+          </div>
         ))}
         {error && <p className="message error">{error}</p>}
       </div>
@@ -181,4 +184,12 @@ export default function ChatPanel({
       </form>
     </section>
   );
+}
+
+function formatProcessingTime(durationMs: number): string {
+  const seconds = Math.max(1, Math.round(durationMs / 1000));
+  if (seconds < 60) {
+    return `已处理 ${seconds}s`;
+  }
+  return `已处理 ${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }

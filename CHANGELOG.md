@@ -2,6 +2,12 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.43 - 2026-05-11
+
+- Fixed file upload handling so `.xlsx` files are parsed into readable worksheet text instead of raw ZIP binary content.
+- Added Codex-like assistant processing duration display for normal chat, office chat, and channel-triggered replies.
+- Made WeChat ClawBot setup stop HaJiMi's active bridge before QR login and avoid deleting the live plugin directory while Windows still has it locked.
+
 ## 0.1.42 - 2026-05-11
 
 - Fixed installed WeChat ClawBot QR startup by writing the setup flow to a short PowerShell script file before opening it, avoiding Windows command-line truncation from the previous encoded command.

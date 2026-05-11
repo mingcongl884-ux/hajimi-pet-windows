@@ -422,13 +422,15 @@ export default function App() {
     setStatus(agentMode ? "review" : "waiting");
     setError(undefined);
     busyRef.current = true;
+    const startedAt = Date.now();
 
     try {
       const requestMessages = [...activeConversation.messages, userMessage];
       const response = agentMode
         ? await window.petApp.runAgentTask(content.trim(), currentPetModelId)
         : await window.petApp.sendChat(requestMessages, currentPetModelId);
-      const labelledResponse = labelPetResponse(response, displayName, state.settings.activePetIds.length > 1);
+      const responseWithDuration = { ...response, durationMs: Date.now() - startedAt };
+      const labelledResponse = labelPetResponse(responseWithDuration, displayName, state.settings.activePetIds.length > 1);
       const responseSettings = appendConversationMessages(
         optimisticSettings,
         conversationId,
@@ -478,13 +480,15 @@ export default function App() {
     setStatus(officeUsesClaudeCode ? "review" : "waiting");
     setError(undefined);
     busyRef.current = true;
+    const startedAt = Date.now();
 
     try {
       const requestMessages = [...activeConversation.messages, userMessage];
       const response = officeUsesClaudeCode
         ? await window.petApp.runAgentTask(content.trim(), activeAgentModelId)
         : await window.petApp.sendChat(requestMessages, activeAgentModelId);
-      const labelledResponse = labelPetResponse(response, displayName, state.settings.activePetIds.length > 1);
+      const responseWithDuration = { ...response, durationMs: Date.now() - startedAt };
+      const labelledResponse = labelPetResponse(responseWithDuration, displayName, state.settings.activePetIds.length > 1);
       const responseSettings = appendConversationMessages(
         optimisticSettings,
         conversationId,

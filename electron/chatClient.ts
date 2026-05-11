@@ -5,6 +5,7 @@ export type ChatRole = "system" | "user" | "assistant";
 export type ChatMessage = {
   role: ChatRole;
   content: string;
+  durationMs?: number;
 };
 
 export type ChatApiSettings = {
@@ -17,6 +18,7 @@ export type ChatApiSettings = {
 export type ChatResponse = {
   role: "assistant";
   content: string;
+  durationMs?: number;
   petActions?: PetAction[];
 };
 
