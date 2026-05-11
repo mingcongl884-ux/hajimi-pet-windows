@@ -115,6 +115,7 @@ export default function ManagerPage({
   const [testMessage, setTestMessage] = useState<string>();
   const [officeDraft, setOfficeDraft] = useState("");
   const [sendingOfficeMessage, setSendingOfficeMessage] = useState(false);
+  const [officeElapsedMs, setOfficeElapsedMs] = useState(1000);
   const [networkMessage, setNetworkMessage] = useState<string>();
   const [channelMessage, setChannelMessage] = useState<string>();
   const [channelBusyProvider, setChannelBusyProvider] = useState<ChannelProvider>();
@@ -167,6 +168,20 @@ export default function ManagerPage({
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [modelMenuOpen]);
+  useEffect(() => {
+    if (!sendingOfficeMessage) {
+      setOfficeElapsedMs(1000);
+      return;
+    }
+
+    const startedAt = Date.now();
+    setOfficeElapsedMs(1000);
+    const timer = window.setInterval(() => {
+      setOfficeElapsedMs(Date.now() - startedAt);
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [sendingOfficeMessage]);
 
   async function save(next = settings) {
     setSaving(true);
@@ -579,10 +594,15 @@ export default function ManagerPage({
   async function sendOfficeFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file) {
+    if (!file || sendingOfficeMessage) {
       return;
     }
-    await onSendOfficeMessage(await fileToMessageContent(file));
+    setSendingOfficeMessage(true);
+    try {
+      await onSendOfficeMessage(await fileToMessageContent(file));
+    } finally {
+      setSendingOfficeMessage(false);
+    }
   }
 
   const activeConversation =
@@ -602,11 +622,20 @@ export default function ManagerPage({
   const selectedModel = settings.models.find((model) => model.id === selectedModelId) ?? settings.models[0];
 
   useEffect(() => {
-    const messageList = messageListRef.current;
-    if (messageList) {
-      messageList.scrollTop = messageList.scrollHeight;
+    if (section !== "office") {
+      return;
     }
-  }, [activeConversation?.id, messages.length, chatError]);
+
+    const frame = window.requestAnimationFrame(() => {
+      const messageList = messageListRef.current;
+      if (!messageList) {
+        return;
+      }
+      messageList.scrollTop = messageList.scrollHeight;
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [section, activeConversation?.id, messages.length, messages.at(-1)?.content, sendingOfficeMessage, chatError]);
 
   return (
     <main className="manager-app-shell">
@@ -722,6 +751,12 @@ export default function ManagerPage({
                 <p>{message.content}</p>
               </article>
             ))}
+            {sendingOfficeMessage && (
+              <article className="codex-message assistant">
+                <span className="codex-message-meta">{formatProcessingTime(officeElapsedMs)}</span>
+                <p>收到，正在处理...</p>
+              </article>
+            )}
             {chatError && (
               <article className="codex-message error">
                 <p>{chatError}</p>

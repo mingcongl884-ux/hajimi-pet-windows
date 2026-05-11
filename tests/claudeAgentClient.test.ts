@@ -1,5 +1,13 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildClaudeEnvironment, buildClaudePermissionOptions, toClaudePermissionMode } from "../electron/claudeAgentClient";
+import {
+  buildClaudeEnvironment,
+  buildClaudePermissionOptions,
+  resolveClaudeCodeExecutable,
+  toClaudePermissionMode
+} from "../electron/claudeAgentClient";
 
 describe("Claude Agent SDK permissions", () => {
   it("maps HaJiMi office permissions to Claude Agent SDK modes", () => {
@@ -56,5 +64,35 @@ describe("Claude Agent SDK permissions", () => {
 
     expect(explicit.ANTHROPIC_API_KEY).toBe("sk-test");
     expect(explicit.ANTHROPIC_BASE_URL).toBe("https://example.com/anthropic");
+  });
+
+  it("finds a system Claude Code executable for CC Switch-backed advanced office mode", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "hajimi-claude-"));
+    const claudePath = join(tempDir, "claude.exe");
+    writeFileSync(claudePath, "");
+
+    try {
+      expect(resolveClaudeCodeExecutable({
+        PATH: tempDir,
+        PATHEXT: ".COM;.EXE;.BAT;.CMD"
+      })).toBe(claudePath);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers an explicit Claude Code executable override", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "hajimi-claude-"));
+    const claudePath = join(tempDir, "custom-claude.exe");
+    writeFileSync(claudePath, "");
+
+    try {
+      expect(resolveClaudeCodeExecutable({
+        CLAUDE_CODE_EXECUTABLE_PATH: claudePath,
+        PATH: ""
+      })).toBe(claudePath);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

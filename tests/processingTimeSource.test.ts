@@ -13,6 +13,7 @@ describe("assistant processing time", () => {
     expect(appSource).toContain("const startedAt = Date.now()");
     expect(appSource).toContain("durationMs: Date.now() - startedAt");
     expect(managerSource).toContain("formatProcessingTime");
+    expect(managerSource).toContain("formatProcessingTime(officeElapsedMs)");
     expect(chatPanelSource).toContain("formatProcessingTime");
   });
 });

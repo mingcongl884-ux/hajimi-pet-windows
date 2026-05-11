@@ -1,3 +1,6 @@
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { delimiter, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { query, type Options, type PermissionMode, type PermissionResult, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { ChatClientError, type ChatResponse } from "./chatClient.js";
 import type { AgentPermissionMode, AgentSettings, ModelProfile } from "./settingsStore.js";
@@ -6,6 +9,11 @@ const READ_ONLY_TOOLS = ["Read", "Glob", "Grep", "LS"];
 const EDIT_TOOLS = ["Edit", "MultiEdit", "Write"];
 const SAFE_AUTO_TOOLS = [...READ_ONLY_TOOLS, ...EDIT_TOOLS];
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
+const CLAUDE_EXECUTABLE_ENV_KEYS = [
+  "CLAUDE_CODE_EXECUTABLE_PATH",
+  "CLAUDE_CODE_PATH",
+  "ANTHROPIC_CLAUDE_CODE_PATH"
+];
 
 export async function runClaudeAgentTask(
   model: ModelProfile,
@@ -80,23 +88,29 @@ export function buildClaudePermissionOptions(agent: AgentSettings): Pick<
 
 async function runClaudeQuery(model: ModelProfile, prompt: string, options: Options): Promise<ChatResponse> {
   const env = buildClaudeEnvironment(model);
+  const pathToClaudeCodeExecutable = resolveClaudeCodeExecutable(env);
 
   const messages: SDKMessage[] = [];
   try {
+    const sdkOptions: Options = {
+      env,
+      model: model.model.trim() || undefined,
+      ...options
+    };
+    if (pathToClaudeCodeExecutable && !sdkOptions.pathToClaudeCodeExecutable) {
+      sdkOptions.pathToClaudeCodeExecutable = pathToClaudeCodeExecutable;
+    }
+
     for await (const message of query({
       prompt,
-      options: {
-        env,
-        model: model.model.trim() || undefined,
-        ...options
-      }
+      options: sdkOptions
     })) {
       messages.push(message);
     }
   } catch (error) {
     throw new ChatClientError(
       "provider-error",
-      error instanceof Error ? error.message : "Claude Agent SDK returned an error."
+      formatClaudeAgentError(error)
     );
   }
 
@@ -106,6 +120,21 @@ async function runClaudeQuery(model: ModelProfile, prompt: string, options: Opti
   }
 
   return { role: "assistant", content: result };
+}
+
+export function resolveClaudeCodeExecutable(baseEnv: NodeJS.ProcessEnv = process.env): string | undefined {
+  for (const key of CLAUDE_EXECUTABLE_ENV_KEYS) {
+    const configuredPath = baseEnv[key]?.trim();
+    if (configuredPath && isExecutableFile(configuredPath)) {
+      return configuredPath;
+    }
+  }
+
+  return [
+    ...findClaudeOnPath(baseEnv),
+    ...commonClaudeInstallCandidates(baseEnv),
+    ...bundledClaudeExecutableCandidates()
+  ].find(isExecutableFile);
 }
 
 export function buildClaudeEnvironment(
@@ -200,4 +229,119 @@ function normalizeAnthropicBaseUrl(baseUrl: string, hasApiKey: boolean): string 
 function isDangerousCommand(command: string): boolean {
   return /\b(del|erase|rd|rmdir|remove-item|rm|format|shutdown|restart-computer|reg\s+delete|set-executionpolicy)\b/i
     .test(command);
+}
+
+function formatClaudeAgentError(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Claude Agent SDK returned an error.";
+  if (/native binary not found|pathToClaudeCodeExecutable|Claude Code executable/i.test(message)) {
+    return [
+      "未找到 Claude Code 执行文件。高级办公/CC Switch 需要可用的 claude.exe 作为执行器。",
+      "请先安装 Claude Code，并确认终端运行 claude --version 能显示版本；也可以设置 CLAUDE_CODE_EXECUTABLE_PATH 指向 claude.exe。",
+      `原始错误：${message}`
+    ].join("\n");
+  }
+  return message;
+}
+
+function findClaudeOnPath(baseEnv: NodeJS.ProcessEnv): string[] {
+  const pathValue = baseEnv.PATH ?? baseEnv.Path ?? baseEnv.path ?? "";
+  const pathExts = process.platform === "win32"
+    ? (baseEnv.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+    : [""];
+  const commandNames = process.platform === "win32" ? ["claude", "claude.exe"] : ["claude"];
+
+  const candidates: string[] = [];
+  for (const pathEntry of pathValue.split(delimiter).filter(Boolean)) {
+    for (const commandName of commandNames) {
+      if (commandName.includes(".")) {
+        candidates.push(join(pathEntry, commandName));
+        continue;
+      }
+      for (const ext of pathExts) {
+        candidates.push(join(pathEntry, `${commandName}${ext.toLowerCase()}`));
+        candidates.push(join(pathEntry, `${commandName}${ext.toUpperCase()}`));
+      }
+    }
+  }
+  return unique(candidates);
+}
+
+function commonClaudeInstallCandidates(baseEnv: NodeJS.ProcessEnv): string[] {
+  if (process.platform !== "win32") {
+    return [];
+  }
+
+  const candidates: string[] = [];
+  const userProfile = baseEnv.USERPROFILE;
+  const localAppData = baseEnv.LOCALAPPDATA;
+  const appData = baseEnv.APPDATA;
+
+  if (userProfile) {
+    candidates.push(join(userProfile, ".local", "bin", "claude.exe"));
+  }
+  if (appData) {
+    candidates.push(join(appData, "npm", "claude.cmd"));
+  }
+  if (localAppData) {
+    const wingetPackages = join(localAppData, "Microsoft", "WinGet", "Packages");
+    try {
+      for (const entry of readdirSync(wingetPackages, { withFileTypes: true })) {
+        if (entry.isDirectory() && entry.name.startsWith("Anthropic.ClaudeCode_")) {
+          candidates.push(join(wingetPackages, entry.name, "claude.exe"));
+        }
+      }
+    } catch {
+      // Missing WinGet package directory is normal on machines using another installer.
+    }
+  }
+
+  return candidates;
+}
+
+function bundledClaudeExecutableCandidates(): string[] {
+  const packageName = getClaudeCodePackageName();
+  const binaryName = process.platform === "win32" ? "claude.exe" : "claude";
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const processWithResources = process as NodeJS.Process & { resourcesPath?: string };
+  const resourcesPath = processWithResources.resourcesPath;
+
+  const candidates = [
+    join(process.cwd(), "node_modules", "@anthropic-ai", packageName, binaryName),
+    resolve(moduleDir, "..", "..", "node_modules", "@anthropic-ai", packageName, binaryName),
+    resolve(moduleDir, "..", "node_modules", "@anthropic-ai", packageName, binaryName)
+  ];
+
+  if (resourcesPath) {
+    candidates.unshift(
+      join(resourcesPath, "app.asar.unpacked", "node_modules", "@anthropic-ai", packageName, binaryName),
+      join(resourcesPath, "app", "node_modules", "@anthropic-ai", packageName, binaryName)
+    );
+  }
+
+  return unique(candidates);
+}
+
+function getClaudeCodePackageName(): string {
+  if (process.platform === "win32") {
+    return process.arch === "arm64" ? "claude-agent-sdk-win32-arm64" : "claude-agent-sdk-win32-x64";
+  }
+  if (process.platform === "darwin") {
+    return process.arch === "arm64" ? "claude-agent-sdk-darwin-arm64" : "claude-agent-sdk-darwin-x64";
+  }
+  if (process.platform === "linux") {
+    return process.arch === "arm64" ? "claude-agent-sdk-linux-arm64" : "claude-agent-sdk-linux-x64";
+  }
+  return "claude-agent-sdk-win32-x64";
+}
+
+function isExecutableFile(filePath: string): boolean {
+  try {
+    return statSync(filePath).isFile();
+  } catch {
+    return existsSync(filePath);
+  }
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
 }

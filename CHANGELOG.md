@@ -2,6 +2,12 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.45 - 2026-05-11
+
+- Fixed Claude Agent SDK / CC Switch startup by automatically locating a system `claude.exe`, WinGet Claude Code installs, explicit executable overrides, or the bundled SDK binary.
+- Made the office chat return to the newest message when switching back to a conversation or the office page.
+- Added live "已处理" feedback while office messages or uploaded files are being processed, then replaced it with the final assistant response duration.
+
 ## 0.1.44 - 2026-05-11
 
 - Made the office permission selector clickable for every office model so default, auto-review, and full-access modes can be changed from the composer.
