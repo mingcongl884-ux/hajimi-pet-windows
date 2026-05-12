@@ -329,6 +329,41 @@ button:disabled {
   color: var(--danger);
 }
 
+.message-action-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 6px;
+  opacity: 0.62;
+}
+
+.message.user .message-action-row,
+.codex-message.user .message-action-row {
+  justify-content: flex-end;
+}
+
+.message-action-row button {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: currentColor;
+  box-shadow: none;
+}
+
+.message-action-row button:hover {
+  background: rgba(0, 0, 0, 0.06);
+  opacity: 1;
+}
+
+.message.user .message-action-row button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
 .chat-panel form {
   display: grid;
   grid-template-columns: 1fr 32px 36px;
@@ -457,6 +492,18 @@ button:disabled {
 .chat-panel .chat-send-button:hover {
   background: #2a2a2a;
   color: white;
+}
+
+.chat-panel .chat-send-button.stop {
+  border-color: var(--line);
+  background: var(--surface-subtle);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.chat-panel .chat-send-button.stop:hover {
+  background: var(--surface);
+  color: var(--ink);
 }
 
 .settings-panel label {
@@ -2075,6 +2122,17 @@ button:disabled {
 .codex-composer-toolbar .codex-send-button:hover {
   background: #2a2a2a;
   color: white;
+}
+
+.codex-composer-toolbar .codex-send-button.stop {
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+
+.codex-composer-toolbar .codex-send-button.stop:hover {
+  background: var(--surface);
+  color: var(--ink);
 }
 
 .codex-config-main {

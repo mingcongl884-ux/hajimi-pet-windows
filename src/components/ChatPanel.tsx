@@ -1,4 +1,4 @@
-import { MoreHorizontal, Paperclip, Plus, Send, Trash2, X } from "lucide-react";
+import { Copy, MoreHorizontal, Paperclip, Pencil, Plus, Send, Square, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import type { ChatMessage } from "../../electron/chatClient";
 import type { PetConversation, PetConversationMode } from "../../electron/settingsStore";
@@ -12,10 +12,12 @@ type Props = {
   messages: ChatMessage[];
   error?: string;
   agentMode: boolean;
+  sending?: boolean;
   onCreateConversation(mode: PetConversationMode): void | Promise<void>;
   onSwitchConversation(conversationId: string): void | Promise<void>;
   onDeleteConversation(conversationId: string): void | Promise<void>;
   onSend(message: ChatMessage): void | Promise<void>;
+  onCancel(): void | Promise<void>;
   onClose(): void;
 };
 
@@ -27,10 +29,12 @@ export default function ChatPanel({
   messages,
   error,
   agentMode,
+  sending = false,
   onCreateConversation,
   onSwitchConversation,
   onDeleteConversation,
   onSend,
+  onCancel,
   onClose
 }: Props) {
   const [draft, setDraft] = useState("");
@@ -38,6 +42,7 @@ export default function ChatPanel({
   const [pendingAttachments, setPendingAttachments] = useState<PromptAttachment[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const draftInputRef = useRef<HTMLInputElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -75,7 +80,7 @@ export default function ChatPanel({
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (!draft.trim() && pendingAttachments.length === 0) {
+    if (sending || (!draft.trim() && pendingAttachments.length === 0)) {
       return;
     }
     const message = pendingAttachments.length > 0
@@ -132,6 +137,15 @@ export default function ChatPanel({
   function runMenuAction(action: () => void | Promise<void>) {
     setMenuOpen(false);
     void action();
+  }
+
+  async function copyMessage(message: ChatMessage) {
+    await writeClipboard(message.displayContent ?? message.content);
+  }
+
+  function editMessage(message: ChatMessage) {
+    setDraft(message.displayContent ?? message.content);
+    requestAnimationFrame(() => draftInputRef.current?.focus());
   }
 
   return (
@@ -214,6 +228,14 @@ export default function ChatPanel({
                 ))}
               </div>
             ) : null}
+            <div className="message-action-row">
+              <button type="button" title="复制" onClick={() => void copyMessage(message)}>
+                <Copy size={13} />
+              </button>
+              <button type="button" title="编辑" onClick={() => editMessage(message)}>
+                <Pencil size={13} />
+              </button>
+            </div>
           </div>
         ))}
         {error && <p className="message error">{error}</p>}
@@ -240,19 +262,42 @@ export default function ChatPanel({
           onChange={(event) => void sendFile(event)}
         />
         <input
+          ref={draftInputRef}
           value={draft}
+          disabled={sending}
           placeholder={agentMode ? "例如：看看 README 并帮我改成新版说明" : ""}
           onChange={(event) => setDraft(event.target.value)}
         />
         <button className="chat-file-button" title="发送文件" type="button" onClick={() => fileInputRef.current?.click()}>
           <Paperclip size={16} />
         </button>
-        <button className="chat-send-button" title="发送" type="submit" disabled={!draft.trim() && pendingAttachments.length === 0}>
-          <Send size={16} />
+        <button
+          className={sending ? "chat-send-button stop" : "chat-send-button"}
+          title={sending ? "停止生成" : "发送"}
+          type={sending ? "button" : "submit"}
+          disabled={!sending && !draft.trim() && pendingAttachments.length === 0}
+          onClick={sending ? () => void onCancel() : undefined}
+        >
+          {sending ? <Square size={13} /> : <Send size={16} />}
         </button>
       </form>
     </section>
   );
+}
+
+async function writeClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const element = document.createElement("textarea");
+  element.value = text;
+  element.style.position = "fixed";
+  element.style.opacity = "0";
+  document.body.appendChild(element);
+  element.select();
+  document.execCommand("copy");
+  element.remove();
 }
 
 function formatProcessingTime(durationMs: number): string {

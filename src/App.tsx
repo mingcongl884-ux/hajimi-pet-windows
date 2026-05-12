@@ -45,7 +45,9 @@ export default function App() {
   const [bubble, setBubble] = useState<BubbleState>();
   const [status, setStatus] = useState<AnimationState>("idle");
   const [error, setError] = useState<string>();
+  const [sendingRequestId, setSendingRequestId] = useState<string>();
   const busyRef = useRef(false);
+  const activeRequestIdRef = useRef<string>();
   const lastInteractionRef = useRef(Date.now());
   const seenWorkCueKeysRef = useRef<Set<string>>(new Set());
   const cursorPositionRef = useRef({ x: 0, y: 0, at: 0 });
@@ -410,6 +412,32 @@ export default function App() {
     };
   }
 
+  function createChatRequestId() {
+    return globalThis.crypto?.randomUUID?.() ?? `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  async function cancelActiveMessage() {
+    const activeRequestId = activeRequestIdRef.current;
+    if (!activeRequestId) {
+      return;
+    }
+    await window.petApp.cancelChatTask(activeRequestId);
+  }
+
+  function finishChatRequest(requestId: string) {
+    if (activeRequestIdRef.current !== requestId) {
+      return;
+    }
+    activeRequestIdRef.current = undefined;
+    setSendingRequestId(undefined);
+    busyRef.current = false;
+  }
+
+  function isCancelledChatError(errorValue: unknown) {
+    const message = readErrorMessage(errorValue);
+    return /已停止|cancel|abort/i.test(message);
+  }
+
   async function sendMessage(input: string | ChatMessage) {
     const userMessage = normalizeUserMessage(input);
     const content = userMessage.content;
@@ -435,14 +463,17 @@ export default function App() {
     setState({ ...state, settings: optimisticSettings });
     setStatus(agentMode ? "review" : "waiting");
     setError(undefined);
+    const requestId = createChatRequestId();
+    activeRequestIdRef.current = requestId;
+    setSendingRequestId(requestId);
     busyRef.current = true;
     const startedAt = Date.now();
 
     try {
       const requestMessages = [...activeConversation.messages, userMessage];
       const response = agentMode
-        ? await window.petApp.runAgentTask(content.trim(), currentPetModelId)
-        : await window.petApp.sendChat(requestMessages, currentPetModelId);
+        ? await window.petApp.runAgentTask(content.trim(), currentPetModelId, requestId)
+        : await window.petApp.sendChat(requestMessages, currentPetModelId, requestId);
       const responseWithDuration = { ...response, durationMs: Date.now() - startedAt };
       const labelledResponse = labelPetResponse(responseWithDuration, displayName, state.settings.activePetIds.length > 1);
       const responseSettings = appendConversationMessages(
@@ -462,10 +493,15 @@ export default function App() {
         setTimedPetStatus("waving", 900);
       }
     } catch (err) {
-      busyRef.current = false;
+      if (isCancelledChatError(err)) {
+        setTimedPetStatus("idle", 0);
+        return;
+      }
       setTimedPetStatus("failed", 1200);
       setError(readErrorMessage(err));
       showBubble(readErrorMessage(err), "info");
+    } finally {
+      finishChatRequest(requestId);
     }
   }
 
@@ -494,14 +530,17 @@ export default function App() {
     setState({ ...state, settings: optimisticSettings });
     setStatus(officeUsesWorkAgent ? "review" : "waiting");
     setError(undefined);
+    const requestId = createChatRequestId();
+    activeRequestIdRef.current = requestId;
+    setSendingRequestId(requestId);
     busyRef.current = true;
     const startedAt = Date.now();
 
     try {
       const requestMessages = [...activeConversation.messages, userMessage];
       const response = officeUsesWorkAgent
-        ? await window.petApp.runAgentTask(content.trim(), activeAgentModelId)
-        : await window.petApp.sendChat(requestMessages, activeAgentModelId);
+        ? await window.petApp.runAgentTask(content.trim(), activeAgentModelId, requestId)
+        : await window.petApp.sendChat(requestMessages, activeAgentModelId, requestId);
       const responseWithDuration = { ...response, durationMs: Date.now() - startedAt };
       const labelledResponse = labelPetResponse(responseWithDuration, displayName, state.settings.activePetIds.length > 1);
       const responseSettings = appendConversationMessages(
@@ -521,10 +560,15 @@ export default function App() {
         setTimedPetStatus("waving", 900);
       }
     } catch (err) {
-      busyRef.current = false;
+      if (isCancelledChatError(err)) {
+        setTimedPetStatus("idle", 0);
+        return;
+      }
       setTimedPetStatus("failed", 1200);
       setError(readErrorMessage(err));
       showBubble(readErrorMessage(err), "info");
+    } finally {
+      finishChatRequest(requestId);
     }
   }
 
@@ -768,6 +812,7 @@ export default function App() {
         onRenameConversation={renameConversationTitle}
         onSendMessage={sendMessage}
         onSendOfficeMessage={sendOfficeMessage}
+        onCancelMessage={cancelActiveMessage}
       />
     );
   }
@@ -783,10 +828,12 @@ export default function App() {
           messages={messages}
           error={error}
           agentMode={agentMode}
+          sending={Boolean(sendingRequestId)}
           onCreateConversation={createNewConversation}
           onSwitchConversation={switchConversation}
           onDeleteConversation={removeConversation}
           onSend={sendMessage}
+          onCancel={cancelActiveMessage}
           onClose={() => {
             markInteraction();
             setChatOpen(false);

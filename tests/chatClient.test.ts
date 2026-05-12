@@ -124,6 +124,21 @@ describe("sendChatMessage", () => {
     });
   });
 
+  it("turns aborted requests into cancellation errors", async () => {
+    const abortError = new DOMException("This operation was aborted", "AbortError");
+    const fetchMock = vi.fn().mockRejectedValue(abortError);
+
+    await expect(sendChatMessage(fetchMock, {
+      baseUrl: "https://api.example.com",
+      apiKey: "secret",
+      model: "gpt-4.1-mini",
+      systemPrompt: ""
+    }, [{ role: "user", content: "hi" }])).rejects.toMatchObject({
+      code: "cancelled",
+      message: expect.stringContaining("已停止")
+    });
+  });
+
   it("reads validated pet actions from model tool calls", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

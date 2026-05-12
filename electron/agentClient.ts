@@ -1,11 +1,19 @@
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
-import { basename, dirname, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
 import { spawn } from "node:child_process";
 import type { ChatApiSettings, ChatFileOutput, ChatResponse } from "./chatClient.js";
 import { buildOpenAIChatCompletionsEndpoint } from "./chatClient.js";
 import { ChatClientError, fetchChatCompletion } from "./chatClient.js";
 import type { AgentSettings } from "./settingsStore.js";
 import { readPetAction, type PetAction } from "../src/lib/petActions.js";
+import {
+  batchFiles,
+  buildProcessListCommand,
+  buildSystemStatusCommand,
+  createSpreadsheetFile,
+  inspectDocumentFile,
+  splitSpreadsheetFile
+} from "./officeTools.js";
 
 export type CommandPolicy = {
   enabled: boolean;
@@ -38,6 +46,7 @@ type ToolCall = {
 type ToolResult = {
   content: string;
   fileOutput?: ChatFileOutput;
+  fileOutputs?: ChatFileOutput[];
 };
 
 const MAX_STEPS = 6;
@@ -47,7 +56,8 @@ export async function runAgentTask(
   fetchImpl: FetchLike,
   api: ChatApiSettings,
   agent: AgentSettings,
-  task: string
+  task: string,
+  signal?: AbortSignal
 ): Promise<ChatResponse> {
   if (!api.apiKey.trim()) {
     throw new ChatClientError("missing-api-key", "API key is required.");
@@ -74,8 +84,9 @@ export async function runAgentTask(
         model: api.model,
         messages,
         tools: AGENT_TOOLS,
-        tool_choice: step === 0 ? "required" : "auto"
-      })
+        tool_choice: "auto"
+      }),
+      signal
     });
 
     if (!response.ok) {
@@ -110,6 +121,9 @@ export async function runAgentTask(
       if (result.fileOutput) {
         fileOutputs.push(result.fileOutput);
       }
+      if (result.fileOutputs?.length) {
+        fileOutputs.push(...result.fileOutputs);
+      }
       messages.push({
         role: "tool",
         tool_call_id: toolCall.id,
@@ -139,6 +153,44 @@ export function resolveWorkspacePath(workspaceDir: string, relativePath: string)
   return target;
 }
 
+export function resolveWritablePath(
+  agent: AgentSettings,
+  relativePath: string,
+  homeDir = process.env.USERPROFILE ?? process.env.HOME ?? ""
+): string {
+  const mode = agent.permissionMode ?? (agent.allowCommands ? "auto-review" : "default");
+  const normalizedPath = relativePath.replace(/\//g, "\\").replace(/^\.\\/, "");
+  const desktopMatch = normalizedPath.match(/^(?:desktop|桌面)\\(.+)/i);
+
+  if (desktopMatch && mode === "default") {
+    throw new Error(`Path is outside workspace: ${relativePath}`);
+  }
+
+  if (mode !== "default" && desktopMatch && homeDir) {
+    return resolve(homeDir, "Desktop", desktopMatch[1]);
+  }
+
+  if (mode !== "default" && isAbsolute(relativePath) && isInsideKnownUserOutputDir(relativePath, homeDir)) {
+    return resolve(relativePath);
+  }
+
+  return resolveWorkspacePath(agent.workspaceDir, relativePath);
+}
+
+function isInsideKnownUserOutputDir(filePath: string, homeDir: string): boolean {
+  if (!homeDir.trim()) {
+    return false;
+  }
+  const target = resolve(filePath).toLowerCase();
+  const desktopRoot = resolve(homeDir, "Desktop").toLowerCase();
+  const downloadsRoot = resolve(homeDir, "Downloads").toLowerCase();
+  return isInsidePath(target, desktopRoot) || isInsidePath(target, downloadsRoot);
+}
+
+function isInsidePath(target: string, root: string): boolean {
+  return target === root || target.startsWith(`${root}${sep}`);
+}
+
 async function executeToolCall(agent: AgentSettings, toolCall: ToolCall): Promise<ToolResult> {
   const args = parseToolArguments(toolCall.function.arguments);
   switch (toolCall.function.name) {
@@ -156,7 +208,36 @@ async function executeToolCall(agent: AgentSettings, toolCall: ToolCall): Promis
         )
       };
     case "write_file":
-      return writeTextFile(agent.workspaceDir, String(args.path ?? ""), String(args.content ?? ""));
+      return writeTextFile(agent, String(args.path ?? ""), String(args.content ?? ""));
+    case "open_application":
+      return { content: await openApplication(agent, String(args.appName ?? args.name ?? "")) };
+    case "inspect_document":
+      return inspectDocumentFile(agent.workspaceDir, String(args.path ?? ""));
+    case "create_spreadsheet":
+      return createSpreadsheetFile(agent, {
+        path: String(args.path ?? ""),
+        headers: readStringArray(args.headers),
+        rows: readTableRows(args.rows)
+      });
+    case "split_spreadsheet":
+      return splitSpreadsheetFile(agent, {
+        path: String(args.path ?? ""),
+        parts: readOptionalNumber(args.parts),
+        rowsPerFile: readOptionalNumber(args.rowsPerFile),
+        outputDir: typeof args.outputDir === "string" ? args.outputDir : undefined
+      });
+    case "get_system_status":
+      return { content: await runCommand(agent, buildSystemStatusCommand()) };
+    case "list_processes":
+      return { content: await runCommand(agent, buildProcessListCommand(readOptionalNumber(args.limit) ?? 12)) };
+    case "batch_files":
+      return batchFiles(
+        agent,
+        args.operation === "move" ? "move" : "copy",
+        String(args.sourceDir ?? "."),
+        String(args.outputDir ?? "batch-output"),
+        typeof args.extension === "string" ? args.extension : undefined
+      );
     case "run_command":
       return { content: await runCommand(agent, String(args.command ?? "")) };
     default:
@@ -205,8 +286,8 @@ async function searchFiles(
   return `Search failed:\n${result.output}`;
 }
 
-async function writeTextFile(workspaceDir: string, relativePath: string, content: string): Promise<ToolResult> {
-  const filePath = resolveWorkspacePath(workspaceDir, relativePath);
+async function writeTextFile(agent: AgentSettings, relativePath: string, content: string): Promise<ToolResult> {
+  const filePath = resolveWritablePath(agent, relativePath);
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, content, "utf8");
   return {
@@ -217,6 +298,49 @@ async function writeTextFile(workspaceDir: string, relativePath: string, content
       size: Buffer.byteLength(content, "utf8")
     }
   };
+}
+
+async function openApplication(agent: AgentSettings, appName: string): Promise<string> {
+  const policy = getCommandPolicy(agent);
+  if (!policy.enabled) {
+    return "Application launch is disabled in the current permission mode. Switch to auto-review or full-access and try again.";
+  }
+
+  const command = buildOpenApplicationCommand(appName);
+  const result = await runProcess("powershell.exe", ["-NoProfile", "-Command", command], agent.workspaceDir, 15000);
+  return `${result.output}\nExit code: ${result.code}`;
+}
+
+export function buildOpenApplicationCommand(appName: string): string {
+  const normalized = appName.trim().toLowerCase();
+  if (!normalized) {
+    return "Write-Output 'Application name is empty.'; exit 1";
+  }
+
+  if (/^(wechat|weixin|\u5fae\u4fe1|\u5fae\u4fe1\u5ba2\u6237\u7aef)$/iu.test(normalized)) {
+    return [
+      "$ErrorActionPreference = 'Stop'",
+      "$candidates = @()",
+      "if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'Tencent\\WeChat\\WeChat.exe') }",
+      "if (${env:ProgramFiles(x86)}) { $candidates += (Join-Path ${env:ProgramFiles(x86)} 'Tencent\\WeChat\\WeChat.exe') }",
+      "if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'Tencent\\WeChat\\WeChat.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\\Tencent\\WeChat\\WeChat.exe') }",
+      "$target = $candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1",
+      "if ($target) { Start-Process -FilePath $target; Write-Output \"Launched WeChat: $target\"; exit 0 }",
+      "foreach ($name in @('WeChat', 'wechat')) { try { Start-Process -FilePath $name; Write-Output \"Launched WeChat via command: $name\"; exit 0 } catch {} }",
+      "Write-Output 'WeChat was not found in common install locations.'",
+      "exit 1"
+    ].join("; ");
+  }
+
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    `Start-Process -FilePath ${psSingleQuote(appName.trim())}`,
+    `Write-Output ${psSingleQuote(`Launched ${appName.trim()}`)}`
+  ].join("; ");
+}
+
+function psSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 async function runCommand(agent: AgentSettings, command: string): Promise<string> {
@@ -287,6 +411,30 @@ function parseToolArguments(raw: string): Record<string, unknown> {
   }
 }
 
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.map((item) => item == null ? "" : String(item));
+}
+
+function readTableRows(value: unknown): Array<Array<string | number | boolean | null | undefined>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((row) => Array.isArray(row) ? row.map((cell) => {
+    if (cell == null || typeof cell === "string" || typeof cell === "number" || typeof cell === "boolean") {
+      return cell;
+    }
+    return String(cell);
+  }) : [String(row)]);
+}
+
+function readOptionalNumber(value: unknown): number | undefined {
+  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isFinite(number) ? number : undefined;
+}
+
 function readPetToolCall(toolCall: ToolCall): PetAction | undefined {
   if (toolCall.function.name !== "control_pet") {
     return undefined;
@@ -300,11 +448,16 @@ function buildAgentPrompt(systemPrompt: string, agent: AgentSettings): string {
     "You can help the user do real computer work by using tools, similar to a coding agent.",
     `Workspace: ${agent.workspaceDir}`,
     `Permission mode: ${agent.permissionMode ?? (agent.allowCommands ? "auto-review" : "default")}`,
+    "For actionable requests, use tools. Do not say you lack tools before trying the relevant safe tool.",
     "You are not only a text assistant: you have a visible desktop pet body controlled by control_pet. Treat movement requests as requests for your own body.",
     "If the user asks you to jump, move, run, change mood, speak as a bubble, go to a screen edge/corner, play by yourself, review work, wait for a result, or calm down, use control_pet instead of saying you cannot control the GUI.",
+    "If the user asks to open or launch an app such as WeChat, use open_application when command permission is enabled.",
+    "For Excel/CSV tables use inspect_document, create_spreadsheet, and split_spreadsheet. For Word/PDF/text summaries use inspect_document.",
+    "For computer maintenance use get_system_status and list_processes before proposing cleanup or repair steps. Use batch_files for safe file copying or full-access moves.",
     "Use mood=review while reading files or thinking about a work task, mood=waiting while waiting for tool output or a user reply, mood=working for focused office flow, and mood=failed when blocked.",
-    "Keep file paths relative to the workspace.",
-    "When the user asks for a spreadsheet, report, document, or any other output file, create it with write_file in the workspace and mention the relative path instead of dumping the full file content into chat.",
+    "Keep file paths relative to the workspace unless the user explicitly asks for Desktop output and the permission mode is auto-review or full-access.",
+    "When the user asks for a spreadsheet, report, document, or any other output file, create it with write_file and mention the path instead of dumping the full file content into chat.",
+    "If the user asks for Desktop output, write to Desktop/<filename> in auto-review or full-access mode.",
     "For code or file tasks: inspect relevant files first, make focused edits, run a suitable verification command when available, then summarize the outcome.",
     "Prefer search_files before guessing where code lives. Prefer read_file before write_file.",
     "Explain what you changed or what command output means. Do not claim work is done unless a tool result supports it."
@@ -435,7 +588,7 @@ const AGENT_TOOLS = [
     type: "function",
     function: {
       name: "write_file",
-      description: "Write a UTF-8 text file inside the workspace.",
+      description: "Write a UTF-8 text file. Paths are normally inside the workspace; Desktop/<file> is allowed in auto-review or full-access mode.",
       parameters: {
         type: "object",
         properties: {
@@ -443,6 +596,114 @@ const AGENT_TOOLS = [
           content: { type: "string", description: "New file content." }
         },
         required: ["path", "content"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_application",
+      description: "Open or launch a local desktop application such as WeChat/微信, Notepad, a browser, or an executable path.",
+      parameters: {
+        type: "object",
+        properties: {
+          appName: { type: "string", description: "Application name, for example WeChat, 微信, notepad, calc, or an executable path." }
+        },
+        required: ["appName"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "inspect_document",
+      description: "Inspect a text, CSV, Excel xlsx, Word docx, or basic PDF file inside the workspace and return readable content or a concise summary.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Relative file path to inspect." }
+        },
+        required: ["path"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_spreadsheet",
+      description: "Create a CSV or xlsx spreadsheet file from headers and rows. Use this for reports, split results, tables, or exported data.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Output path such as reports/table.xlsx or table.csv." },
+          headers: { type: "array", items: { type: "string" } },
+          rows: {
+            type: "array",
+            items: {
+              type: "array",
+              items: { type: ["string", "number", "boolean", "null"] }
+            }
+          }
+        },
+        required: ["path", "rows"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "split_spreadsheet",
+      description: "Split a CSV/TSV/xlsx spreadsheet into multiple CSV files. Keeps the header row in each output file.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Relative input file path." },
+          parts: { type: "number", description: "Number of output parts." },
+          rowsPerFile: { type: "number", description: "Alternative chunk size by data rows per output file." },
+          outputDir: { type: "string", description: "Relative output directory." }
+        },
+        required: ["path"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_system_status",
+      description: "Read basic Windows system status: OS, CPU, memory, and filesystem drive usage. Requires command-enabled permission mode.",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_processes",
+      description: "List top Windows processes by CPU usage. Requires command-enabled permission mode.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Maximum process count, defaults to 12." }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "batch_files",
+      description: "Copy files in a workspace directory to another directory, or move them only in full-access mode. Useful for organizing project files safely.",
+      parameters: {
+        type: "object",
+        properties: {
+          operation: { enum: ["copy", "move"] },
+          sourceDir: { type: "string", description: "Relative source directory." },
+          outputDir: { type: "string", description: "Relative output directory." },
+          extension: { type: "string", description: "Optional extension filter such as .xlsx or .png." }
+        },
+        required: ["operation", "sourceDir", "outputDir"]
       }
     }
   },

@@ -55,4 +55,20 @@ describe("chat panel source", () => {
     expect(stylesSource).toContain(".composer-attachments");
     expect(stylesSource).toContain(".composer-drop-active");
   });
+
+  it("adds Codex-like stop, copy, and edit controls", () => {
+    const chatPanelSource = readFileSync("src/components/ChatPanel.tsx", "utf8");
+    const stylesSource = readFileSync("src/styles.css", "utf8");
+
+    expect(chatPanelSource).toContain("Copy");
+    expect(chatPanelSource).toContain("Pencil");
+    expect(chatPanelSource).toContain("Square");
+    expect(chatPanelSource).toContain("message-action-row");
+    expect(chatPanelSource).toContain("copyMessage");
+    expect(chatPanelSource).toContain("editMessage");
+    expect(chatPanelSource).toContain("onCancel");
+    expect(chatPanelSource).toContain("sending ? \"chat-send-button stop\" : \"chat-send-button\"");
+    expect(stylesSource).toContain(".message-action-row");
+    expect(stylesSource).toContain(".chat-send-button.stop");
+  });
 });

@@ -36,6 +36,7 @@ export class ChatClientError extends Error {
     public readonly code:
       | "missing-api-key"
       | "invalid-base-url"
+      | "cancelled"
       | "network-error"
       | "provider-error"
       | "malformed-response",
@@ -114,8 +115,20 @@ export async function fetchChatCompletion(
   try {
     return await fetchImpl(endpoint, init);
   } catch (error) {
+    if (isAbortError(error)) {
+      throw new ChatClientError("cancelled", "已停止生成。");
+    }
     throw createNetworkError(error, endpoint);
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const typed = error as { name?: unknown; code?: unknown; message?: unknown };
+  const message = typeof typed.message === "string" ? typed.message : "";
+  return typed.name === "AbortError" || typed.code === "ABORT_ERR" || /abort|cancel/i.test(message);
 }
 
 function createNetworkError(error: unknown, endpoint: string): ChatClientError {

@@ -49,8 +49,9 @@ declare global {
       startChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
       stopChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
       testChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
-      sendChat(messages: ChatMessage[], modelId?: string): Promise<ChatResponse>;
-      runAgentTask(task: string, modelId?: string): Promise<ChatResponse>;
+      sendChat(messages: ChatMessage[], modelId?: string, requestId?: string): Promise<ChatResponse>;
+      runAgentTask(task: string, modelId?: string, requestId?: string): Promise<ChatResponse>;
+      cancelChatTask(requestId: string): Promise<boolean>;
       heartbeatGreeting(prompt: string): Promise<ChatResponse>;
       testModel(model: ModelProfile): Promise<string>;
       checkUpdates(): Promise<UpdateCheckResult>;

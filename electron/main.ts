@@ -55,10 +55,31 @@ let currentPetScale = DEFAULT_SETTINGS.petScale;
 let stopWeixinBridge: WeixinMessageBridgeStop | undefined;
 let channelMessageQueue = Promise.resolve();
 const channelRuntimeStatusKeys = new Map<ChannelProvider, string>();
+const activeChatTaskControllers = new Map<string, AbortController>();
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
+}
+
+function createCancellableChatTask(requestId?: string) {
+  const controller = requestId ? new AbortController() : undefined;
+  if (requestId && controller) {
+    activeChatTaskControllers.set(requestId, controller);
+  }
+
+  return {
+    controller,
+    fetchImpl: (url: string, init: RequestInit) => fetch(url, {
+      ...init,
+      signal: controller?.signal ?? init.signal
+    }),
+    finish: () => {
+      if (requestId && activeChatTaskControllers.get(requestId) === controller) {
+        activeChatTaskControllers.delete(requestId);
+      }
+    }
+  };
 }
 
 async function createWindows() {
@@ -286,16 +307,35 @@ function registerIpc() {
     await broadcastState();
     return result;
   });
-  ipcMain.handle("pet:send-chat", async (_event, messages: ChatMessage[], modelId?: string) => {
-    const settings = await settingsStore.loadSettings();
-    return sendChatMessage(fetch, getModelSettingsById(settings, modelId, "chat"), messages);
+  ipcMain.handle("pet:cancel-chat-task", (_event, requestId: string) => {
+    const controller = activeChatTaskControllers.get(requestId);
+    if (!controller) {
+      return false;
+    }
+    controller.abort();
+    activeChatTaskControllers.delete(requestId);
+    return true;
   });
-  ipcMain.handle("pet:run-agent-task", async (_event, task: string, modelId?: string) => {
+  ipcMain.handle("pet:send-chat", async (_event, messages: ChatMessage[], modelId?: string, requestId?: string) => {
+    const task = createCancellableChatTask(requestId);
+    const settings = await settingsStore.loadSettings();
+    try {
+      return await sendChatMessage(task.fetchImpl, getModelSettingsById(settings, modelId, "chat"), messages);
+    } finally {
+      task.finish();
+    }
+  });
+  ipcMain.handle("pet:run-agent-task", async (_event, taskPrompt: string, modelId?: string, requestId?: string) => {
+    const task = createCancellableChatTask(requestId);
     const settings = await settingsStore.loadSettings();
     const model = getModelSettingsById(settings, modelId, "agent");
-    return model.provider === "claude-agent"
-      ? runClaudeAgentTask(model, settings.agent, task)
-      : runAgentTask(fetch, model, settings.agent, task);
+    try {
+      return await (model.provider === "claude-agent"
+        ? runClaudeAgentTask(model, settings.agent, taskPrompt, task.controller)
+        : runAgentTask(task.fetchImpl, model, settings.agent, taskPrompt, task.controller?.signal));
+    } finally {
+      task.finish();
+    }
   });
   ipcMain.handle("pet:heartbeat-greeting", async (_event, prompt: string) => {
     const settings = await settingsStore.loadSettings();

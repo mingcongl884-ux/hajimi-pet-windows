@@ -7,7 +7,7 @@ import type { AgentPermissionMode, AgentSettings, ModelProfile } from "./setting
 
 const READ_ONLY_TOOLS = ["Read", "Glob", "Grep", "LS"];
 const EDIT_TOOLS = ["Edit", "MultiEdit", "Write"];
-const SAFE_AUTO_TOOLS = [...READ_ONLY_TOOLS, ...EDIT_TOOLS];
+const SAFE_AUTO_TOOLS = [...READ_ONLY_TOOLS, ...EDIT_TOOLS, "Bash"];
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
 const CLAUDE_EXECUTABLE_ENV_KEYS = [
   "CLAUDE_CODE_EXECUTABLE_PATH",
@@ -18,7 +18,8 @@ const CLAUDE_EXECUTABLE_ENV_KEYS = [
 export async function runClaudeAgentTask(
   model: ModelProfile,
   agent: AgentSettings,
-  task: string
+  task: string,
+  abortController?: AbortController
 ): Promise<ChatResponse> {
   if (!agent.workspaceDir.trim()) {
     throw new ChatClientError("malformed-response", "Choose a workspace before using advanced work mode.");
@@ -26,13 +27,14 @@ export async function runClaudeAgentTask(
 
   return runClaudeQuery(model, task, {
     cwd: agent.workspaceDir,
-    maxTurns: 12,
+    maxTurns: 24,
     ...buildClaudePermissionOptions(agent),
     systemPrompt: {
       type: "preset",
       preset: "claude_code",
       append: buildAgentAppendPrompt(model.systemPrompt, agent)
-    }
+    },
+    abortController
   });
 }
 
@@ -108,6 +110,9 @@ async function runClaudeQuery(model: ModelProfile, prompt: string, options: Opti
       messages.push(message);
     }
   } catch (error) {
+    if (isAbortError(error)) {
+      throw new ChatClientError("cancelled", "已停止生成。");
+    }
     throw new ChatClientError(
       "provider-error",
       formatClaudeAgentError(error)
@@ -121,6 +126,15 @@ async function runClaudeQuery(model: ModelProfile, prompt: string, options: Opti
 
   const fileOutputs = readClaudeFileOutputs(messages, typeof options.cwd === "string" ? options.cwd : undefined);
   return { role: "assistant", content: result, fileOutputs: fileOutputs.length ? fileOutputs : undefined };
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const typed = error as { name?: unknown; code?: unknown; message?: unknown };
+  const message = typeof typed.message === "string" ? typed.message : "";
+  return typed.name === "AbortError" || typed.code === "ABORT_ERR" || /abort|cancel/i.test(message);
 }
 
 export function resolveClaudeCodeExecutable(baseEnv: NodeJS.ProcessEnv = process.env): string | undefined {
@@ -292,6 +306,8 @@ function buildAgentAppendPrompt(systemPrompt: string, agent: AgentSettings): str
     `Workspace: ${agent.workspaceDir}`,
     `Permission mode: ${agent.permissionMode}`,
     "Keep paths relative to the workspace when possible.",
+    "When the user asks to launch an app, check the current permission mode and use Bash with a safe Start-Process command instead of only explaining manual steps.",
+    "When the user asks for output files, create the files with Write/Edit or Bash and then stop with a concise summary. If they ask for Desktop output, use the user's Desktop folder.",
     "Before editing, inspect the relevant files. After changes, run a suitable verification command when permission allows it.",
     "Summarize what changed, what you verified, and any follow-up risk."
   ].join("\n");

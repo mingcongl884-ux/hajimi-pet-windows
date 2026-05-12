@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Copy,
   Download,
   FolderOpen,
   MessageCircle,
@@ -16,6 +17,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Square,
   Trash2,
   X
 } from "lucide-react";
@@ -55,6 +57,7 @@ type Props = {
   onRenameConversation(conversationId: string, title: string): Promise<void>;
   onSendMessage(message: ChatMessage): Promise<void>;
   onSendOfficeMessage(message: ChatMessage): Promise<void>;
+  onCancelMessage(): Promise<void> | void;
 };
 
 type ManagerSection = "office" | "pets" | "models" | "channels" | "system";
@@ -103,7 +106,8 @@ export default function ManagerPage({
   onSwitchConversation,
   onDeleteConversation,
   onRenameConversation,
-  onSendOfficeMessage
+  onSendOfficeMessage,
+  onCancelMessage
 }: Props) {
   const [section, setSection] = useState<ManagerSection>("office");
   const [settings, setSettings] = useState(ensureProjects(ensureModelProfiles(state.settings)));
@@ -131,6 +135,7 @@ export default function ManagerPage({
   const [renamingPetName, setRenamingPetName] = useState("");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const officeFileInputRef = useRef<HTMLInputElement>(null);
+  const officeDraftInputRef = useRef<HTMLInputElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
 
@@ -527,6 +532,15 @@ export default function ManagerPage({
     await onDeleteConversation(conversationId);
   }
 
+  async function copyOfficeMessage(message: ChatMessage) {
+    await writeClipboard(message.displayContent ?? message.content);
+  }
+
+  function editOfficeMessage(message: ChatMessage) {
+    setOfficeDraft(message.displayContent ?? message.content);
+    requestAnimationFrame(() => officeDraftInputRef.current?.focus());
+  }
+
   function renderConversationRow(conversation: PetConversation) {
     return (
       <div
@@ -803,6 +817,14 @@ export default function ManagerPage({
                     ))}
                   </div>
                 ) : null}
+                <div className="message-action-row">
+                  <button type="button" title="复制" onClick={() => void copyOfficeMessage(message)}>
+                    <Copy size={13} />
+                  </button>
+                  <button type="button" title="编辑" onClick={() => editOfficeMessage(message)}>
+                    <Pencil size={13} />
+                  </button>
+                </div>
               </article>
             ))}
             {sendingOfficeMessage && (
@@ -836,6 +858,7 @@ export default function ManagerPage({
               </div>
             )}
             <input
+              ref={officeDraftInputRef}
               value={officeDraft}
               disabled={sendingOfficeMessage}
               placeholder={sendingOfficeMessage ? "发送中..." : activeAgentModel?.provider === "claude-agent" ? "要求后续变更" : "和哈基Mi聊聊当前项目"}
@@ -925,12 +948,13 @@ export default function ManagerPage({
                 <Trash2 size={16} />
               </button>
               <button
-                className="codex-send-button"
-                title={sendingOfficeMessage ? "发送中" : "发送"}
-                type="submit"
-                disabled={sendingOfficeMessage || (!officeDraft.trim() && pendingOfficeAttachments.length === 0)}
+                className={sendingOfficeMessage ? "codex-send-button stop" : "codex-send-button"}
+                title={sendingOfficeMessage ? "停止生成" : "发送"}
+                type={sendingOfficeMessage ? "button" : "submit"}
+                disabled={!sendingOfficeMessage && !officeDraft.trim() && pendingOfficeAttachments.length === 0}
+                onClick={sendingOfficeMessage ? () => void onCancelMessage() : undefined}
               >
-                <Send size={17} />
+                {sendingOfficeMessage ? <Square size={13} /> : <Send size={17} />}
               </button>
             </div>
           </form>
@@ -1430,6 +1454,21 @@ export default function ManagerPage({
       )}
     </main>
   );
+}
+
+async function writeClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const element = document.createElement("textarea");
+  element.value = text;
+  element.style.position = "fixed";
+  element.style.opacity = "0";
+  document.body.appendChild(element);
+  element.select();
+  document.execCommand("copy");
+  element.remove();
 }
 
 function formatProcessingTime(durationMs: number): string {

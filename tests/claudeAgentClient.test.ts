@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -17,7 +17,7 @@ describe("Claude Agent SDK permissions", () => {
     expect(toClaudePermissionMode("full-access")).toBe("bypassPermissions");
   });
 
-  it("keeps default mode read-only and full access explicit", () => {
+  it("keeps default mode read-only, allows safe Bash in auto-review, and full access explicit", () => {
     expect(buildClaudePermissionOptions({
       workspaceDir: "C:\\work\\project",
       allowCommands: false,
@@ -30,12 +30,29 @@ describe("Claude Agent SDK permissions", () => {
     expect(buildClaudePermissionOptions({
       workspaceDir: "C:\\work\\project",
       allowCommands: true,
+      permissionMode: "auto-review"
+    })).toMatchObject({
+      tools: { type: "preset", preset: "claude_code" },
+      allowedTools: expect.arrayContaining(["Bash", "Read", "Write"]),
+      permissionMode: "acceptEdits"
+    });
+
+    expect(buildClaudePermissionOptions({
+      workspaceDir: "C:\\work\\project",
+      allowCommands: true,
       permissionMode: "full-access"
     })).toMatchObject({
       tools: { type: "preset", preset: "claude_code" },
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true
     });
+  });
+
+  it("gives advanced office mode enough turns for file work", () => {
+    const source = readFileSync("electron/claudeAgentClient.ts", "utf8");
+
+    expect(source).toContain("maxTurns: 24");
+    expect(source).toContain("use Bash");
   });
 
   it("can inherit Claude Code or CC Switch provider settings when API fields are empty", () => {
