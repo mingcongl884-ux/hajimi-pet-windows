@@ -1,4 +1,4 @@
-const { cpSync, existsSync, mkdirSync, readdirSync } = require("node:fs");
+const { cpSync, existsSync, mkdirSync, readdirSync, rmSync } = require("node:fs");
 const { dirname, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
@@ -100,6 +100,7 @@ module.exports = async function afterPack(context) {
   }
 
   copyBundledRuntimePackages(context);
+  prunePackagedOpenClawDocs(context.appOutDir);
 
   const exePath = join(context.appOutDir, `${context.packager.appInfo.productFilename}.exe`);
   const iconPath = join(context.packager.projectDir, "assets", "icons", "app-icon.ico");
@@ -121,6 +122,8 @@ module.exports = async function afterPack(context) {
   }
 };
 
+module.exports.prunePackagedOpenClawDocs = prunePackagedOpenClawDocs;
+
 function copyBundledRuntimePackages(context) {
   const sourceNodeModules = join(context.packager.projectDir, "node_modules");
   const targetNodeModules = join(context.appOutDir, "resources", "app.asar.unpacked", "node_modules");
@@ -132,6 +135,21 @@ function copyBundledRuntimePackages(context) {
     }
     mkdirSync(dirname(target), { recursive: true });
     cpSync(source, target, { recursive: true, force: true, dereference: false });
+  }
+}
+
+function prunePackagedOpenClawDocs(appOutDir) {
+  const openClawRoot = join(appOutDir, "resources", "app.asar.unpacked", "node_modules", "openclaw");
+  const removable = [
+    join(openClawRoot, "docs"),
+    join(openClawRoot, "CHANGELOG.md"),
+    join(openClawRoot, "README.md")
+  ];
+
+  for (const target of removable) {
+    if (existsSync(target)) {
+      rmSync(target, { recursive: true, force: true });
+    }
   }
 }
 

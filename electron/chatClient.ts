@@ -298,58 +298,21 @@ const PET_ACTION_TOOLS = [
       description: "Control your visible HaJiMi desktop pet body when the user asks you to move, jump, run, speak, go to a screen edge/corner, change mood, play by yourself, review work, wait for a result, or calm down.",
       parameters: {
         type: "object",
-        oneOf: [
-          {
-            properties: {
-              type: { const: "say" },
-              text: { type: "string", minLength: 1, maxLength: 140 }
-            },
-            required: ["type", "text"]
+        properties: {
+          type: {
+            type: "string",
+            enum: ["say", "jump", "openChat", "stopMovement", "moveTo", "moveToEdge", "runAround", "setMovement", "mood"]
           },
-          {
-            properties: {
-              type: { enum: ["jump", "openChat", "stopMovement"] }
-            },
-            required: ["type"]
-          },
-          {
-            properties: {
-              type: { const: "moveTo" },
-              x: { type: "number" },
-              y: { type: "number" }
-            },
-            required: ["type", "x", "y"]
-          },
-          {
-            properties: {
-              type: { const: "moveToEdge" },
-              edge: { enum: ["left", "right", "topLeft", "topRight", "bottomLeft", "bottomRight", "center"] }
-            },
-            required: ["type", "edge"]
-          },
-          {
-            properties: {
-              type: { const: "runAround" },
-              seconds: { type: "number", minimum: 1, maximum: 30 }
-            },
-            required: ["type"]
-          },
-          {
-            properties: {
-              type: { const: "setMovement" },
-              enabled: { type: "boolean" },
-              intensity: { enum: ["calm", "normal", "lively"] }
-            },
-            required: ["type", "enabled"]
-          },
-          {
-            properties: {
-              type: { const: "mood" },
-              mood: { enum: ["idle", "happy", "working", "waiting", "review", "failed"] }
-            },
-            required: ["type", "mood"]
-          }
-        ]
+          text: { type: "string", description: "Bubble text for say actions, max 140 characters." },
+          x: { type: "number" },
+          y: { type: "number" },
+          edge: { type: "string", enum: ["left", "right", "topLeft", "topRight", "bottomLeft", "bottomRight", "center"] },
+          seconds: { type: "number", minimum: 1, maximum: 30 },
+          enabled: { type: "boolean" },
+          intensity: { type: "string", enum: ["calm", "normal", "lively"] },
+          mood: { type: "string", enum: ["idle", "happy", "working", "waiting", "review", "failed"] }
+        },
+        required: ["type"]
       }
     }
   }

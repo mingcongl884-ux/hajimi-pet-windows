@@ -14,13 +14,14 @@ import type { OpenDialogOptions } from "electron";
 import { appendFile, cp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runAgentTask } from "./agentClient.js";
+import { runAgentTask as runLegacyAgentTask } from "./agentClient.js";
 import { handleInboundChannelMessage } from "./channelBridge.js";
 import { startChannelAdapter, stopChannelAdapter, testChannelAdapter } from "./channelAdapters.js";
 import type { ChannelProvider } from "../src/lib/channels.js";
 import type { ChannelMessage } from "../src/lib/channelRouter.js";
 import { runClaudeAgentTask, testClaudeAgentModel } from "./claudeAgentClient.js";
 import { sendChatMessage, type ChatMessage } from "./chatClient.js";
+import { runOpenClawAgentTask } from "./openClawAgentClient.js";
 import type { PetAction } from "../src/lib/petActions.js";
 import {
   checkForAppUpdates,
@@ -332,7 +333,7 @@ function registerIpc() {
     try {
       return await (model.provider === "claude-agent"
         ? runClaudeAgentTask(model, settings.agent, taskPrompt, task.controller)
-        : runAgentTask(task.fetchImpl, model, settings.agent, taskPrompt, task.controller?.signal));
+        : runOrdinaryOfficeTask(task.fetchImpl, model, settings.agent, taskPrompt, task.controller));
     } finally {
       task.finish();
     }
@@ -409,6 +410,28 @@ function registerIpc() {
     petWindows.get(slot)?.setIgnoreMouseEvents(passthrough, { forward: true });
   });
   ipcMain.handle("pet:get-cursor-screen-point", () => screen.getCursorScreenPoint());
+}
+
+async function runOrdinaryOfficeTask(
+  fetchImpl: (url: string, init: RequestInit) => ReturnType<typeof fetch>,
+  model: ModelProfile,
+  agent: AppSettings["agent"],
+  taskPrompt: string,
+  controller?: AbortController
+) {
+  try {
+    return await runOpenClawAgentTask(model, agent, taskPrompt, {
+      stateDir: join(app.getPath("userData"), "openclaw-office"),
+      signal: controller?.signal
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/Bundled OpenClaw runtime was not found|spawn|ENOENT/i.test(message)) {
+      throw error;
+    }
+    await writeRuntimeLog(`openclaw ordinary office unavailable; falling back to legacy agent: ${message}`);
+    return runLegacyAgentTask(fetchImpl, model, agent, taskPrompt, controller?.signal);
+  }
 }
 
 async function deleteImportedPet(petId: string) {

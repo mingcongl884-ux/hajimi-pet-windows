@@ -176,6 +176,28 @@ describe("sendChatMessage", () => {
     expect(JSON.stringify(body.tools[0])).toContain("waiting");
   });
 
+  it("uses conservative OpenAI-compatible pet tool schemas", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: "ok" } }]
+      })
+    });
+
+    await sendChatMessage(fetchMock, {
+      baseUrl: "https://api.example.com",
+      apiKey: "secret",
+      model: "gpt-4.1-mini",
+      systemPrompt: ""
+    }, [{ role: "user", content: "跳一下" }]);
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const serializedTools = JSON.stringify(body.tools);
+    expect(serializedTools).not.toContain("\"oneOf\"");
+    expect(serializedTools).not.toContain("\"const\"");
+    expect(serializedTools).not.toContain("\"type\":[");
+  });
+
   it("accepts OpenAI-like content arrays and object tool arguments", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

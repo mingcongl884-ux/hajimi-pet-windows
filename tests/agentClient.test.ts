@@ -103,6 +103,100 @@ describe("runAgentTask", () => {
     expect(body.messages[0].content).toContain("Desktop");
   });
 
+  it("uses conservative OpenAI-compatible tool schemas for broad providers", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "xiaomi-agent-"));
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: "done" } }]
+      })
+    });
+
+    await runAgentTask(fetchMock, {
+      baseUrl: "https://api.example.com",
+      apiKey: "secret",
+      model: "agent-model",
+      systemPrompt: "Be helpful."
+    }, {
+      workspaceDir,
+      allowCommands: true,
+      permissionMode: "auto-review"
+    }, "Split the spreadsheet.");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const serializedTools = JSON.stringify(body.tools);
+    expect(serializedTools).not.toContain("\"oneOf\"");
+    expect(serializedTools).not.toContain("\"const\"");
+    expect(serializedTools).not.toContain("\"type\":[");
+  });
+
+  it("surfaces provider error bodies for ordinary office requests", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "xiaomi-agent-"));
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      text: async () => "{\"error\":{\"message\":\"unsupported tool schema\"}}",
+      json: async () => ({})
+    });
+
+    await expect(runAgentTask(fetchMock, {
+      baseUrl: "https://api.example.com",
+      apiKey: "secret",
+      model: "agent-model",
+      systemPrompt: "Be helpful."
+    }, {
+      workspaceDir,
+      allowCommands: true,
+      permissionMode: "auto-review"
+    }, "Split the spreadsheet.")).rejects.toThrow(/unsupported tool schema/);
+  });
+
+  it("falls back to text tool calls when an OpenAI-compatible provider rejects native tools", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "xiaomi-agent-"));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: "Bad Request",
+        text: async () => "{\"error\":{\"message\":\"tools are not supported\"}}",
+        json: async () => ({})
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{
+            message: {
+              role: "assistant",
+              content: "<tool_calls>[{\"name\":\"create_spreadsheet\",\"arguments\":{\"path\":\"reports/fallback.csv\",\"headers\":[\"name\"],\"rows\":[[\"哈基Mi\"]]}}]</tool_calls>"
+            }
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { role: "assistant", content: "普通模型也生成好了。" } }]
+        })
+      });
+
+    const response = await runAgentTask(fetchMock, {
+      baseUrl: "https://api.example.com",
+      apiKey: "secret",
+      model: "agent-model",
+      systemPrompt: "Be helpful."
+    }, {
+      workspaceDir,
+      allowCommands: true,
+      permissionMode: "auto-review"
+    }, "Create a spreadsheet.");
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).tools).toBeDefined();
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).tools).toBeUndefined();
+    expect(response.content).toBe("普通模型也生成好了。");
+    expect(response.fileOutputs).toEqual([{ path: "reports/fallback.csv", name: "fallback.csv", size: expect.any(Number) }]);
+  });
+
   it("runs office file tools and returns created files to the chat", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "xiaomi-agent-"));
     const fetchMock = vi.fn()

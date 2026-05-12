@@ -24,6 +24,7 @@ type FetchLike = (url: string, init: RequestInit) => Promise<{
   ok: boolean;
   status?: number;
   statusText?: string;
+  text?: () => Promise<string>;
   json: () => Promise<unknown>;
 }>;
 
@@ -90,9 +91,13 @@ export async function runAgentTask(
     });
 
     if (!response.ok) {
+      const errorMessage = await readProviderErrorMessage(response, response.statusText || "Agent provider returned an error.");
+      if (step === 0 && response.status === 400) {
+        return runAgentTaskWithTextTools(fetchImpl, api, agent, task, signal, errorMessage);
+      }
       throw new ChatClientError(
         "provider-error",
-        response.statusText || "Agent provider returned an error.",
+        errorMessage,
         response.status
       );
     }
@@ -130,6 +135,94 @@ export async function runAgentTask(
         content: trimToolOutput(result.content)
       });
     }
+  }
+
+  return {
+    role: "assistant",
+    content: petActions.length ? "我已经执行了宠物动作。" : "I reached the step limit. I stopped before doing more work.",
+    petActions: petActions.length ? petActions : undefined,
+    fileOutputs: fileOutputs.length ? fileOutputs : undefined
+  };
+}
+
+async function runAgentTaskWithTextTools(
+  fetchImpl: FetchLike,
+  api: ChatApiSettings,
+  agent: AgentSettings,
+  task: string,
+  signal: AbortSignal | undefined,
+  nativeToolError: string
+): Promise<ChatResponse> {
+  const messages: AgentMessage[] = [
+    { role: "system", content: buildTextToolPrompt(api.systemPrompt, agent, nativeToolError) },
+    { role: "user", content: task }
+  ];
+  const petActions: PetAction[] = [];
+  const fileOutputs: ChatFileOutput[] = [];
+
+  for (let step = 0; step < MAX_STEPS; step += 1) {
+    const response = await fetchChatCompletion(fetchImpl, buildOpenAIChatCompletionsEndpoint(api.baseUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${api.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: api.model,
+        messages
+      }),
+      signal
+    });
+
+    if (!response.ok) {
+      throw new ChatClientError(
+        "provider-error",
+        await readProviderErrorMessage(response, response.statusText || "Agent provider returned an error."),
+        response.status
+      );
+    }
+
+    const message = readAssistantMessage(await response.json());
+    if (!message) {
+      throw new ChatClientError("malformed-response", "Agent provider returned an invalid response.");
+    }
+
+    messages.push(message);
+    const toolCalls = readTextToolCalls(message.content ?? "");
+    if (!toolCalls.length) {
+      return {
+        role: "assistant",
+        content: stripTextToolCalls(message.content || (petActions.length ? "好的。" : "Done.")),
+        petActions: petActions.length ? petActions : undefined,
+        fileOutputs: fileOutputs.length ? fileOutputs : undefined
+      };
+    }
+
+    const toolResults: string[] = [];
+    for (const toolCall of toolCalls) {
+      const petAction = readPetToolCall(toolCall);
+      if (petAction) {
+        petActions.push(petAction);
+      }
+      const result = petAction ? { content: "Pet action accepted." } : await executeToolCall(agent, toolCall);
+      if (result.fileOutput) {
+        fileOutputs.push(result.fileOutput);
+      }
+      if (result.fileOutputs?.length) {
+        fileOutputs.push(...result.fileOutputs);
+      }
+      toolResults.push([
+        `Tool: ${toolCall.function.name}`,
+        `Arguments: ${toolCall.function.arguments}`,
+        "Result:",
+        trimToolOutput(result.content)
+      ].join("\n"));
+    }
+
+    messages.push({
+      role: "user",
+      content: `Tool results are below. Continue the task or provide the final answer.\n\n${toolResults.join("\n\n---\n\n")}`
+    });
   }
 
   return {
@@ -411,6 +504,40 @@ function parseToolArguments(raw: string): Record<string, unknown> {
   }
 }
 
+async function readProviderErrorMessage(
+  response: Awaited<ReturnType<FetchLike>>,
+  fallback: string
+): Promise<string> {
+  if (!response.text) {
+    return fallback;
+  }
+  try {
+    const raw = await response.text();
+    const message = readProviderErrorText(raw);
+    return message ? `${fallback}: ${message}` : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function readProviderErrorText(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return "";
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      error?: { message?: unknown };
+      message?: unknown;
+      detail?: unknown;
+    };
+    const message = parsed.error?.message ?? parsed.message ?? parsed.detail;
+    return typeof message === "string" ? message : trimmed.slice(0, 500);
+  } catch {
+    return trimmed.slice(0, 500);
+  }
+}
+
 function readStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
@@ -464,6 +591,50 @@ function buildAgentPrompt(systemPrompt: string, agent: AgentSettings): string {
   ].join("\n");
 }
 
+function buildTextToolPrompt(systemPrompt: string, agent: AgentSettings, nativeToolError: string): string {
+  return [
+    buildAgentPrompt(systemPrompt, agent),
+    "",
+    "Native OpenAI function tools were rejected by this provider, so use HaJiMi text tool calls instead.",
+    `Native tool error: ${nativeToolError}`,
+    "When you need to call tools, reply with only this JSON inside tags:",
+    "<tool_calls>[{\"name\":\"inspect_document\",\"arguments\":{\"path\":\"file.xlsx\"}}]</tool_calls>",
+    "Available tool names: control_pet, list_files, read_file, write_file, open_application, inspect_document, create_spreadsheet, split_spreadsheet, get_system_status, list_processes, batch_files, search_files, run_command.",
+    "For create_spreadsheet, rows should be arrays of strings. For control_pet, use the same argument names described in the prompt.",
+    "After tool results are returned, continue with another <tool_calls> block if more work is needed, otherwise give the final concise answer."
+  ].join("\n");
+}
+
+function readTextToolCalls(content: string): ToolCall[] {
+  const calls: ToolCall[] = [];
+  for (const match of content.matchAll(/<tool_calls>([\s\S]*?)<\/tool_calls>/gi)) {
+    const parsed = parseToolArguments(match[1]);
+    const rawCalls = Array.isArray(parsed) ? parsed : Array.isArray((parsed as { calls?: unknown }).calls) ? (parsed as { calls: unknown[] }).calls : [];
+    for (const rawCall of rawCalls) {
+      if (!rawCall || typeof rawCall !== "object") {
+        continue;
+      }
+      const typed = rawCall as { name?: unknown; arguments?: unknown };
+      if (typeof typed.name !== "string") {
+        continue;
+      }
+      calls.push({
+        id: `text_tool_${calls.length + 1}`,
+        type: "function",
+        function: {
+          name: typed.name,
+          arguments: JSON.stringify(typed.arguments && typeof typed.arguments === "object" ? typed.arguments : {})
+        }
+      });
+    }
+  }
+  return calls;
+}
+
+function stripTextToolCalls(content: string): string {
+  return content.replace(/<tool_calls>[\s\S]*?<\/tool_calls>/gi, "").trim() || "Done.";
+}
+
 function readAssistantMessage(data: unknown): AgentMessage | undefined {
   if (!data || typeof data !== "object") {
     return undefined;
@@ -502,58 +673,21 @@ const AGENT_TOOLS = [
       description: "Control the visible HaJiMi desktop pet body. Use this for requests like jump, run, move left/right, go to a corner, speak a bubble, open chat, change mood, play by yourself, review work, wait for a result, or calm down.",
       parameters: {
         type: "object",
-        oneOf: [
-          {
-            properties: {
-              type: { const: "say" },
-              text: { type: "string", minLength: 1, maxLength: 140 }
-            },
-            required: ["type", "text"]
+        properties: {
+          type: {
+            type: "string",
+            enum: ["say", "jump", "openChat", "stopMovement", "moveToEdge", "moveTo", "runAround", "setMovement", "mood"]
           },
-          {
-            properties: {
-              type: { enum: ["jump", "openChat", "stopMovement"] }
-            },
-            required: ["type"]
-          },
-          {
-            properties: {
-              type: { const: "moveToEdge" },
-              edge: { enum: ["left", "right", "topLeft", "topRight", "bottomLeft", "bottomRight", "center"] }
-            },
-            required: ["type", "edge"]
-          },
-          {
-            properties: {
-              type: { const: "moveTo" },
-              x: { type: "number" },
-              y: { type: "number" }
-            },
-            required: ["type", "x", "y"]
-          },
-          {
-            properties: {
-              type: { const: "runAround" },
-              seconds: { type: "number", minimum: 1, maximum: 30 }
-            },
-            required: ["type"]
-          },
-          {
-            properties: {
-              type: { const: "setMovement" },
-              enabled: { type: "boolean" },
-              intensity: { enum: ["calm", "normal", "lively"] }
-            },
-            required: ["type", "enabled"]
-          },
-          {
-            properties: {
-              type: { const: "mood" },
-              mood: { enum: ["idle", "happy", "working", "waiting", "review", "failed"] }
-            },
-            required: ["type", "mood"]
-          }
-        ]
+          text: { type: "string", description: "Bubble text for say actions, max 140 characters." },
+          edge: { type: "string", enum: ["left", "right", "topLeft", "topRight", "bottomLeft", "bottomRight", "center"] },
+          x: { type: "number" },
+          y: { type: "number" },
+          seconds: { type: "number", minimum: 1, maximum: 30 },
+          enabled: { type: "boolean" },
+          intensity: { type: "string", enum: ["calm", "normal", "lively"] },
+          mood: { type: "string", enum: ["idle", "happy", "working", "waiting", "review", "failed"] }
+        },
+        required: ["type"]
       }
     }
   },
@@ -641,7 +775,7 @@ const AGENT_TOOLS = [
             type: "array",
             items: {
               type: "array",
-              items: { type: ["string", "number", "boolean", "null"] }
+              items: { type: "string" }
             }
           }
         },
@@ -673,7 +807,9 @@ const AGENT_TOOLS = [
       description: "Read basic Windows system status: OS, CPU, memory, and filesystem drive usage. Requires command-enabled permission mode.",
       parameters: {
         type: "object",
-        properties: {}
+        properties: {
+          detail: { type: "string", enum: ["basic"], description: "Optional detail level. Only basic is supported." }
+        }
       }
     }
   },
@@ -698,7 +834,7 @@ const AGENT_TOOLS = [
       parameters: {
         type: "object",
         properties: {
-          operation: { enum: ["copy", "move"] },
+          operation: { type: "string", enum: ["copy", "move"] },
           sourceDir: { type: "string", description: "Relative source directory." },
           outputDir: { type: "string", description: "Relative output directory." },
           extension: { type: "string", description: "Optional extension filter such as .xlsx or .png." }
