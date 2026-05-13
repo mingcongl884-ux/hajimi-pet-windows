@@ -9,12 +9,14 @@ const require = createRequire(import.meta.url);
 const { prunePackagedOpenClawDocs } = require("../scripts/after-pack.cjs");
 
 describe("prunePackagedOpenClawDocs", () => {
-  it("removes OpenClaw documentation weight without touching runtime files", async () => {
+  it("removes OpenClaw documentation weight while keeping required runtime templates", async () => {
     const appOutDir = mkdtempSync(join(tmpdir(), "hajimi-pack-"));
     const openClawRoot = join(appOutDir, "resources", "app.asar.unpacked", "node_modules", "openclaw");
     await mkdir(join(openClawRoot, "docs"), { recursive: true });
+    await mkdir(join(openClawRoot, "docs", "reference", "templates"), { recursive: true });
     await mkdir(join(openClawRoot, "dist"), { recursive: true });
     await writeFile(join(openClawRoot, "docs", "guide.md"), "docs", "utf8");
+    await writeFile(join(openClawRoot, "docs", "reference", "templates", "AGENTS.md"), "template", "utf8");
     await writeFile(join(openClawRoot, "CHANGELOG.md"), "changes", "utf8");
     await writeFile(join(openClawRoot, "README.md"), "readme", "utf8");
     await writeFile(join(openClawRoot, "openclaw.mjs"), "runtime", "utf8");
@@ -24,6 +26,7 @@ describe("prunePackagedOpenClawDocs", () => {
 
     await expect(readFile(join(openClawRoot, "openclaw.mjs"), "utf8")).resolves.toBe("runtime");
     await expect(readFile(join(openClawRoot, "dist", "index.js"), "utf8")).resolves.toBe("dist");
+    await expect(readFile(join(openClawRoot, "docs", "reference", "templates", "AGENTS.md"), "utf8")).resolves.toBe("template");
     await expect(readFile(join(openClawRoot, "docs", "guide.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     await expect(readFile(join(openClawRoot, "CHANGELOG.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     await expect(readFile(join(openClawRoot, "README.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });

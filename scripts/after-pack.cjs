@@ -140,16 +140,38 @@ function copyBundledRuntimePackages(context) {
 
 function prunePackagedOpenClawDocs(appOutDir) {
   const openClawRoot = join(appOutDir, "resources", "app.asar.unpacked", "node_modules", "openclaw");
+  const docsRoot = join(openClawRoot, "docs");
   const removable = [
-    join(openClawRoot, "docs"),
     join(openClawRoot, "CHANGELOG.md"),
     join(openClawRoot, "README.md")
   ];
+
+  if (existsSync(docsRoot)) {
+    for (const entry of readdirSync(docsRoot, { withFileTypes: true })) {
+      if (entry.name === "reference") {
+        pruneOpenClawReferenceDocs(join(docsRoot, entry.name));
+        continue;
+      }
+      rmSync(join(docsRoot, entry.name), { recursive: true, force: true });
+    }
+  }
 
   for (const target of removable) {
     if (existsSync(target)) {
       rmSync(target, { recursive: true, force: true });
     }
+  }
+}
+
+function pruneOpenClawReferenceDocs(referenceDir) {
+  if (!existsSync(referenceDir)) {
+    return;
+  }
+  for (const entry of readdirSync(referenceDir, { withFileTypes: true })) {
+    if (entry.name === "templates") {
+      continue;
+    }
+    rmSync(join(referenceDir, entry.name), { recursive: true, force: true });
   }
 }
 
