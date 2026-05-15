@@ -84,6 +84,15 @@ export default function SettingsPanel({
       </label>
 
       <label className="toggle-row">
+        <span>控制模式</span>
+        <input
+          type="checkbox"
+          checked={settings.keyboardControlEnabled}
+          onChange={(event) => void update("keyboardControlEnabled", event.target.checked)}
+        />
+      </label>
+
+      <label className="toggle-row">
         <span>多宠物一起玩耍</span>
         <input
           type="checkbox"

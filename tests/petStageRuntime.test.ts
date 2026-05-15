@@ -6,6 +6,7 @@ describe("pet stage runtime", () => {
     expect(shouldPauseNaturalMovement({
       animationOverride: "failed",
       dragging: false,
+      keyboardControlActive: false,
       playActive: false
     })).toBe(true);
   });
@@ -14,12 +15,22 @@ describe("pet stage runtime", () => {
     expect(shouldPauseNaturalMovement({
       animationOverride: "jumping",
       dragging: false,
+      keyboardControlActive: false,
       playActive: true
     })).toBe(false);
     expect(shouldPauseNaturalMovement({
       animationOverride: "failed",
       dragging: true,
+      keyboardControlActive: false,
       playActive: false
     })).toBe(false);
+  });
+
+  it("pauses autonomous movement while keyboard control is active", () => {
+    expect(shouldPauseNaturalMovement({
+      dragging: false,
+      keyboardControlActive: true,
+      playActive: false
+    })).toBe(true);
   });
 });

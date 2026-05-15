@@ -88,6 +88,7 @@ export type AppSettings = {
   petWindowPositions?: Record<string, { x: number; y: number }>;
   movementEnabled: boolean;
   movementIntensity: MovementIntensity;
+  keyboardControlEnabled: boolean;
   playTogetherEnabled: boolean;
   api: ApiSettings;
   models: ModelProfile[];
@@ -137,6 +138,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   petScale: 0.5,
   movementEnabled: true,
   movementIntensity: "lively",
+  keyboardControlEnabled: false,
   playTogetherEnabled: true,
   api: {
     baseUrl: "https://api.openai.com",

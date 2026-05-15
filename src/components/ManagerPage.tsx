@@ -1061,6 +1061,14 @@ export default function ManagerPage({
                 />
               </label>
               <label className="manager-toggle">
+                <span>控制模式</span>
+                <input
+                  type="checkbox"
+                  checked={settings.keyboardControlEnabled}
+                  onChange={(event) => void update({ ...settings, keyboardControlEnabled: event.target.checked })}
+                />
+              </label>
+              <label className="manager-toggle">
                 <span>多宠物一起玩耍</span>
                 <input
                   type="checkbox"

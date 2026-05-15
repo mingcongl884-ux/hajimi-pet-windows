@@ -42,6 +42,10 @@ describe("pet play integration source", () => {
     expect(mainSource).toContain("isAnyPetChatOpen(activePetIds.length)");
   });
 
+  it("pauses together-play commands while keyboard control mode is enabled", () => {
+    expect(mainSource).toContain("settings.playTogetherEnabled && !settings.keyboardControlEnabled");
+  });
+
   it("keeps active pet id and active pet list synchronized in main-process pet switches", () => {
     expect(mainSource).toMatch(/activePetId:\s*petId[\s\S]*activePetIds:\s*\[petId\]/);
     expect(mainSource).toMatch(/activePetId:\s*imported\.petId[\s\S]*activePetIds:\s*\[imported\.petId\]/);

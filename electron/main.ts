@@ -720,7 +720,7 @@ async function broadcastPetPlayCommands() {
     .filter((item): item is { slot: number; x: number; y: number; width: number; height: number } => Boolean(item));
 
   const commands = planPetPlayStep({
-    enabled: settings.playTogetherEnabled,
+    enabled: settings.playTogetherEnabled && !settings.keyboardControlEnabled,
     movementEnabled: settings.movementEnabled,
     chatOpen: isAnyPetChatOpen(activePetIds.length),
     bounds,

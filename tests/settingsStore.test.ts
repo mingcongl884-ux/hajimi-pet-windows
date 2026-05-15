@@ -89,6 +89,7 @@ describe("SettingsStore", () => {
       petScale: 0.5,
       movementEnabled: true,
       movementIntensity: "lively",
+      keyboardControlEnabled: false,
       playTogetherEnabled: true,
       agent: {
         permissionMode: "default"

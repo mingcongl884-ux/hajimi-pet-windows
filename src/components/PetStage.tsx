@@ -5,6 +5,7 @@ import type { PetPlayCommand } from "../lib/petPlay";
 import type { AppSettings } from "../../electron/settingsStore";
 import type { InstalledPet, PetManifest } from "../lib/petTypes";
 import type { PetAppState, ScreenPoint } from "../global";
+import { isEditableKeyboardTarget, normalizePetControlKey, stepKeyboardControlledPet, type PetControlKey } from "../lib/petKeyboardControl";
 import { getPetVisibleRect, getPetWindowMovementBounds } from "../lib/petWindowGeometry";
 import { shouldPauseNaturalMovement } from "../lib/petStageRuntime";
 
@@ -31,6 +32,9 @@ const HOVER_REACTION_INTERVAL_MS = 900;
 const HOVER_CURSOR_POLL_MS = 120;
 const HOVER_CURSOR_STALE_MS = 500;
 const HOVER_REACTIONS: AnimationState[] = ["waving", "jumping"];
+const KEYBOARD_CONTROL_SPEED_PX_PER_SECOND = 190;
+const KEYBOARD_JUMP_DURATION_MS = 680;
+const KEYBOARD_JUMP_HEIGHT = 72;
 
 export default function PetStage({
   pet,
@@ -55,9 +59,14 @@ export default function PetStage({
   const hoverCursorRef = useRef<ScreenPoint & { at: number }>();
   const hoverCursorPollPendingRef = useRef(false);
   const hoverReactionRef = useRef<AnimationState>("waving");
+  const keyboardControlKeysRef = useRef<Set<PetControlKey>>(new Set());
+  const keyboardDirectionRef = useRef<1 | -1>(1);
+  const keyboardGroundPositionRef = useRef({ x: windowBounds.x, y: windowBounds.y });
+  const keyboardJumpRef = useRef<{ startedAt: number; durationMs: number; height: number }>();
 
   useEffect(() => {
     positionRef.current = { x: windowBounds.x, y: windowBounds.y };
+    keyboardGroundPositionRef.current = { x: windowBounds.x, y: windowBounds.y };
     movementRef.current = new MovementController({
       screen,
       pet: { width: windowBounds.width, height: windowBounds.height },
@@ -99,19 +108,24 @@ export default function PetStage({
         if (movementAccumulator >= 80) {
           const playCommand = playCommandRef.current;
           const playActive = Boolean(playCommand && !dragRef.current);
+          const keyboardControlActive = settings.keyboardControlEnabled && !dragRef.current;
           const naturalMovementPaused = shouldPauseNaturalMovement({
             animationOverride,
             dragging: Boolean(dragRef.current),
+            keyboardControlActive,
             playActive
           });
           controller.setEnabled(settings.movementEnabled && !naturalMovementPaused);
           const snapshot = playActive && playCommand
             ? followPlayCommand(playCommand, now)
+            : keyboardControlActive
+              ? tickKeyboardControl(movementAccumulator, now)
             : controller.tick(movementAccumulator);
           movementAccumulator = 0;
           animationRef.current = snapshot.animation;
           positionRef.current = { x: snapshot.x, y: snapshot.y };
-          if (((settings.movementEnabled && !naturalMovementPaused) || playActive) && !dragRef.current) {
+          const keyboardControlMoving = keyboardControlActive && (keyboardControlKeysRef.current.size > 0 || Boolean(keyboardJumpRef.current));
+          if (((settings.movementEnabled && !naturalMovementPaused) || playActive || keyboardControlMoving) && !dragRef.current) {
             void window.petApp.setPetWindowBounds({ x: snapshot.x, y: snapshot.y });
           }
           if (playCommand && now >= playCommand.until) {
@@ -145,13 +159,65 @@ export default function PetStage({
 
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [animationOverride, chatOpen, pet.manifest, settings.movementEnabled, settings.movementIntensity]);
+  }, [animationOverride, chatOpen, pet.manifest, screen, settings.keyboardControlEnabled, settings.movementEnabled, settings.movementIntensity, settings.petScale, windowBounds.height, windowBounds.width]);
 
   useEffect(() => {
     if (chatOpen) {
       clearHoverReaction();
     }
   }, [chatOpen]);
+
+  useEffect(() => {
+    if (!settings.keyboardControlEnabled) {
+      clearKeyboardControl();
+      return;
+    }
+
+    const handleKeyboardControlKeyDown = (event: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(event.target)) {
+        return;
+      }
+      const controlKey = normalizePetControlKey(event.key);
+      if (!controlKey) {
+        return;
+      }
+
+      event.preventDefault();
+      clearHoverReaction();
+      playCommandRef.current = undefined;
+
+      if (controlKey === "jump") {
+        if (!keyboardJumpRef.current) {
+          keyboardJumpRef.current = {
+            startedAt: performance.now(),
+            durationMs: KEYBOARD_JUMP_DURATION_MS,
+            height: KEYBOARD_JUMP_HEIGHT
+          };
+          frameRef.current = 0;
+        }
+        return;
+      }
+
+      keyboardControlKeysRef.current.add(controlKey);
+    };
+
+    const handleKeyboardControlKeyUp = (event: KeyboardEvent) => {
+      const controlKey = normalizePetControlKey(event.key);
+      if (!controlKey || controlKey === "jump") {
+        return;
+      }
+      keyboardControlKeysRef.current.delete(controlKey);
+    };
+
+    window.addEventListener("keydown", handleKeyboardControlKeyDown);
+    window.addEventListener("keyup", handleKeyboardControlKeyUp);
+    window.addEventListener("blur", clearKeyboardControl);
+    return () => {
+      window.removeEventListener("keydown", handleKeyboardControlKeyDown);
+      window.removeEventListener("keyup", handleKeyboardControlKeyUp);
+      window.removeEventListener("blur", clearKeyboardControl);
+    };
+  }, [settings.keyboardControlEnabled]);
 
   useEffect(() => {
     if (!settings.movementEnabled) {
@@ -163,6 +229,15 @@ export default function PetStage({
       }
     }
   }, [pet.manifest, settings.movementEnabled]);
+
+  useEffect(() => {
+    if (settings.keyboardControlEnabled) {
+      movementRef.current?.setEnabled(false);
+      playCommandRef.current = undefined;
+      animationRef.current = "idle";
+      keyboardGroundPositionRef.current = { ...positionRef.current };
+    }
+  }, [settings.keyboardControlEnabled]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -321,6 +396,7 @@ export default function PetStage({
     }
     dragRef.current.moved = true;
     positionRef.current = next;
+    keyboardGroundPositionRef.current = next;
     movementRef.current?.setPosition(next.x, next.y);
     movementRef.current?.setDragging(true, dragRef.current.direction);
     animationRef.current = dragRef.current.direction === 1 ? "runRight" : "runLeft";
@@ -345,11 +421,50 @@ export default function PetStage({
     const jumpOffset = (playCommand.jumpHeight ?? 0) * Math.sin(linearProgress * Math.PI);
     const y = playCommand.from.y + (playCommand.target.y - playCommand.from.y) * linearProgress - jumpOffset;
     movementRef.current?.setPosition(x, y);
+    keyboardGroundPositionRef.current = { x: Math.round(x), y: Math.round(y) };
     return {
       x: Math.round(x),
       y: Math.round(y),
       direction: playCommand.target.x >= playCommand.from.x ? 1 as const : -1 as const,
       animation: playCommand.animation
+    };
+  }
+
+  function clearKeyboardControl() {
+    keyboardControlKeysRef.current.clear();
+    keyboardJumpRef.current = undefined;
+  }
+
+  function tickKeyboardControl(deltaMs: number, now: number) {
+    const bounds = getPetWindowMovementBounds(screen, { width: windowBounds.width, height: windowBounds.height }, settings.petScale);
+    const snapshot = stepKeyboardControlledPet({
+      keys: keyboardControlKeysRef.current,
+      current: keyboardGroundPositionRef.current,
+      bounds,
+      deltaMs,
+      speedPxPerSecond: KEYBOARD_CONTROL_SPEED_PX_PER_SECOND,
+      previousDirection: keyboardDirectionRef.current
+    });
+    keyboardDirectionRef.current = snapshot.direction;
+    keyboardGroundPositionRef.current = { x: snapshot.x, y: snapshot.y };
+
+    const jump = keyboardJumpRef.current;
+    if (!jump) {
+      movementRef.current?.setPosition(snapshot.x, snapshot.y);
+      return snapshot;
+    }
+
+    const progress = Math.min(1, Math.max(0, (now - jump.startedAt) / jump.durationMs));
+    const jumpOffset = jump.height * Math.sin(progress * Math.PI);
+    const y = Math.round(snapshot.y - jumpOffset);
+    if (progress >= 1) {
+      keyboardJumpRef.current = undefined;
+    }
+    movementRef.current?.setPosition(snapshot.x, y);
+    return {
+      ...snapshot,
+      y,
+      animation: "jumping" as AnimationState
     };
   }
 

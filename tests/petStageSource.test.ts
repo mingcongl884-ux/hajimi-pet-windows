@@ -79,4 +79,17 @@ describe("pet stage source", () => {
     expect(source).toContain("naturalMovementPaused");
     expect(source).toContain("settings.movementEnabled && !naturalMovementPaused");
   });
+
+  it("wires keyboard control mode through the pet stage", () => {
+    const source = readFileSync("src/components/PetStage.tsx", "utf8");
+
+    expect(source).toContain("normalizePetControlKey");
+    expect(source).toContain("stepKeyboardControlledPet");
+    expect(source).toContain("settings.keyboardControlEnabled");
+    expect(source).toContain('window.addEventListener("keydown", handleKeyboardControlKeyDown)');
+    expect(source).toContain('window.addEventListener("keyup", handleKeyboardControlKeyUp)');
+    expect(source).toContain("keyboardControlActive");
+    expect(source).toContain("keyboardJumpRef");
+    expect(source).toContain('controlKey === "jump"');
+  });
 });
