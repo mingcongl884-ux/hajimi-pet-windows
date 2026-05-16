@@ -7,6 +7,7 @@ import type { ChannelProvider } from "./lib/channels";
 import type { PetPlayCommand } from "./lib/petPlay";
 import type { PetMoveCommand } from "./lib/petMotion";
 import type { PetAction } from "./lib/petActions";
+import type { PetControlKey } from "./lib/petKeyboardControl";
 import type { InstalledPet } from "./lib/petTypes";
 
 export type PetAppState = {
@@ -70,6 +71,7 @@ declare global {
       getCursorScreenPoint(): Promise<ScreenPoint>;
       onStateChanged(callback: (state: PetAppState) => void): () => void;
       onPlayCommand(callback: (command: PetPlayCommand) => void): () => void;
+      onKeyboardControl(callback: (key: PetControlKey) => void): () => void;
       onOutsideInteraction(callback: () => void): () => void;
       onExternalPetActions(callback: (actions: PetAction[]) => void): () => void;
     };

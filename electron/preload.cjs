@@ -39,6 +39,11 @@ contextBridge.exposeInMainWorld("petApp", {
     ipcRenderer.on("pet:play-command", listener);
     return () => ipcRenderer.off("pet:play-command", listener);
   },
+  onKeyboardControl: (callback) => {
+    const listener = (_event, key) => callback(key);
+    ipcRenderer.on("pet:keyboard-control", listener);
+    return () => ipcRenderer.off("pet:keyboard-control", listener);
+  },
   onOutsideInteraction: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("pet:outside-interaction", listener);

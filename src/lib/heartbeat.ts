@@ -1,3 +1,5 @@
+import { choosePetGreeting } from "./petGreetings.js";
+
 export type GreetingSlotId = "morning" | "lunch" | "afterWork";
 
 export type GreetingSlot = {
@@ -19,24 +21,6 @@ const SLOTS: SlotConfig[] = [
   { id: "afterWork", label: "18:20 下班提醒", minuteStart: 18 * 60 + 15, minuteEnd: 18 * 60 + 35 }
 ];
 
-const LOCAL_GREETINGS: Record<GreetingSlotId, string[]> = {
-  morning: [
-    "早上好，今天也慢慢来。先喝口水，再开工。",
-    "早上好呀，9:40 了，先把今天最重要的一件事放到最前面。",
-    "开工啦。记得让眼睛先适应一下屏幕，别一上来就冲太猛。"
-  ],
-  lunch: [
-    "中午到了，先去吃饭吧。哈基Mi替你看着桌面。",
-    "12 点啦，午饭时间。吃完再回来，脑子会更清楚。",
-    "午间休息一下，别把自己一直挂在屏幕上。"
-  ],
-  afterWork: [
-    "18:20 了，差不多该收尾下班啦。",
-    "可以开始收工了。把没做完的留个小备注，明天会轻很多。",
-    "下班提醒：保存一下进度，今天已经够努力了。"
-  ]
-};
-
 export function getDueGreetingSlot(now: Date, sentKeys: string[]): GreetingSlot | undefined {
   const minutes = now.getHours() * 60 + now.getMinutes();
   const dateKey = formatLocalDate(now);
@@ -50,8 +34,7 @@ export function getDueGreetingSlot(now: Date, sentKeys: string[]): GreetingSlot 
 }
 
 export function chooseLocalGreeting(slotId: GreetingSlotId, seed = Date.now()): string {
-  const candidates = LOCAL_GREETINGS[slotId];
-  return candidates[Math.abs(Math.floor(seed)) % candidates.length];
+  return choosePetGreeting(slotId, seed);
 }
 
 export function buildHeartbeatPrompt(slotId: GreetingSlotId): string {

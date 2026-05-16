@@ -15,7 +15,7 @@ describe("pet interaction intents", () => {
   it("turns quiet commands into local stop actions", () => {
     const intent = resolvePetInteractionIntent("安静会，别跑了");
 
-    expect(intent?.reply).toContain("安静");
+    expect(intent?.reply).toMatch(/安静|乖乖|不乱跑|专注/);
     expect(intent?.actions).toEqual([
       { type: "stopMovement" },
       { type: "mood", mood: "idle" }

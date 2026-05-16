@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   dialog,
+  globalShortcut,
   ipcMain,
   Menu,
   nativeImage,
@@ -33,6 +34,7 @@ import {
 import { importPetBundle } from "./petImporter.js";
 import { DEFAULT_SETTINGS, SettingsStore, type AppSettings, type ModelProfile } from "./settingsStore.js";
 import { getActiveModelSettings, getModelSettingsById } from "../src/lib/modelProfiles.js";
+import type { PetControlKey } from "../src/lib/petKeyboardControl.js";
 import type { PetMoveCommand } from "../src/lib/petMotion.js";
 import { planPetPlayStep } from "../src/lib/petPlay.js";
 import type { InstalledPet, PetManifest } from "../src/lib/petTypes.js";
@@ -57,6 +59,18 @@ let stopWeixinBridge: WeixinMessageBridgeStop | undefined;
 let channelMessageQueue = Promise.resolve();
 const channelRuntimeStatusKeys = new Map<ChannelProvider, string>();
 const activeChatTaskControllers = new Map<string, AbortController>();
+const PET_CONTROL_SHORTCUTS: Array<{ accelerator: string; key: PetControlKey }> = [
+  { accelerator: "W", key: "up" },
+  { accelerator: "A", key: "left" },
+  { accelerator: "S", key: "down" },
+  { accelerator: "D", key: "right" },
+  { accelerator: "Up", key: "up" },
+  { accelerator: "Left", key: "left" },
+  { accelerator: "Down", key: "down" },
+  { accelerator: "Right", key: "right" },
+  { accelerator: "Space", key: "jump" }
+];
+let petKeyboardShortcutsRegistered = false;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -96,6 +110,7 @@ async function createWindows() {
   createTray();
   startPetPlayLoop();
   syncChannelBridges(settings);
+  void refreshKeyboardControlShortcuts(settings);
 }
 
 async function createPetWindow(slot: number, settings: AppSettings) {
@@ -179,6 +194,8 @@ async function createManagerWindow() {
       managerWindow?.hide();
     }
   });
+  managerWindow.on("focus", () => void refreshKeyboardControlShortcuts());
+  managerWindow.on("blur", () => void refreshKeyboardControlShortcuts());
 
   if (process.env.VITE_DEV_SERVER_URL) {
     await managerWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}?mode=manager`);
@@ -265,6 +282,7 @@ function registerIpc() {
     currentPetScale = settings.petScale;
     await settingsStore.saveSettings(settings);
     syncChannelBridges(settings);
+    void refreshKeyboardControlShortcuts(settings);
     refreshTray();
     return broadcastState();
   });
@@ -405,6 +423,7 @@ function registerIpc() {
   });
   ipcMain.handle("pet:set-chat-open", (_event, slot: number, open: boolean) => {
     petChatOpen.set(slot, open);
+    void refreshKeyboardControlShortcuts();
   });
   ipcMain.handle("pet:set-mouse-passthrough", (_event, slot: number, passthrough: boolean) => {
     petWindows.get(slot)?.setIgnoreMouseEvents(passthrough, { forward: true });
@@ -743,6 +762,59 @@ function isAnyPetChatOpen(activePetCount: number) {
   return false;
 }
 
+function isManagerWindowFocused() {
+  return Boolean(managerWindow && !managerWindow.isDestroyed() && managerWindow.isFocused());
+}
+
+async function refreshKeyboardControlShortcuts(settingsArg?: AppSettings) {
+  if (!settingsStore) {
+    unregisterPetKeyboardShortcuts();
+    return;
+  }
+
+  const settings = settingsArg ?? await settingsStore.loadSettings();
+  const activePetIds = (settings.activePetIds?.length ? settings.activePetIds : [settings.activePetId]).slice(0, 2);
+  const shouldRegister =
+    settings.keyboardControlEnabled &&
+    petWindows.size > 0 &&
+    !isAnyPetChatOpen(activePetIds.length) &&
+    !isManagerWindowFocused();
+
+  if (shouldRegister) {
+    registerPetKeyboardShortcuts();
+  } else {
+    unregisterPetKeyboardShortcuts();
+  }
+}
+
+function registerPetKeyboardShortcuts() {
+  if (petKeyboardShortcutsRegistered) {
+    return;
+  }
+
+  for (const shortcut of PET_CONTROL_SHORTCUTS) {
+    globalShortcut.register(shortcut.accelerator, () => broadcastPetKeyboardControl(shortcut.key));
+  }
+  petKeyboardShortcutsRegistered = true;
+}
+
+function unregisterPetKeyboardShortcuts() {
+  if (!petKeyboardShortcutsRegistered) {
+    return;
+  }
+
+  for (const shortcut of PET_CONTROL_SHORTCUTS) {
+    globalShortcut.unregister(shortcut.accelerator);
+  }
+  petKeyboardShortcutsRegistered = false;
+}
+
+function broadcastPetKeyboardControl(key: PetControlKey) {
+  for (const window of petWindows.values()) {
+    window.webContents.send("pet:keyboard-control", key);
+  }
+}
+
 async function ensureBundledPet() {
   await mkdir(petsDir(), { recursive: true });
   const xiaomiDir = join(petsDir(), "xiaomi");
@@ -906,6 +978,7 @@ app.on("activate", () => {
 app.on("window-all-closed", () => undefined);
 
 app.on("before-quit", () => {
+  unregisterPetKeyboardShortcuts();
   if (petPlayInterval) {
     clearInterval(petPlayInterval);
   }

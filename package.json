@@ -1,72 +1,10 @@
 {
   "name": "xiaomi-pet-windows",
-  "version": "0.1.50",
+  "version": "0.1.51",
   "description": "HaJiMi standalone Windows desktop pet with importable pets and OpenAI-compatible chat.",
   "private": true,
   "type": "module",
   "main": "dist-electron/electron/main.js",
-  "scripts": {
-    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
-    "build": "tsc -p tsconfig.node.json && vite build",
-    "test": "vitest run",
-    "package": "npm run package:folder",
-    "package:folder": "npm run build && electron-builder --win dir",
-    "package:installer": "npm run build && electron-builder --win nsis",
-    "package:all": "npm run build && electron-builder --win dir nsis",
-    "set:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/set-win-icon.ps1"
-  },
-  "build": {
-    "appId": "com.codex.xiaomipet",
-    "productName": "哈基Mi",
-    "artifactName": "HaJiMi-Setup-${version}.${ext}",
-    "afterPack": "scripts/after-pack.cjs",
-    "asarUnpack": [
-      "node_modules/node/**",
-      "node_modules/openclaw/**",
-      "node_modules/@tencent-weixin/openclaw-weixin/**",
-      "node_modules/qrcode-terminal/**",
-      "node_modules/zod/**"
-    ],
-    "compression": "store",
-    "npmRebuild": false,
-    "files": [
-      "dist/renderer/**/*",
-      "dist-electron/**/*",
-      "electron/preload.cjs",
-      "assets/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "assets",
-        "to": "assets"
-      }
-    ],
-    "publish": [
-      {
-        "provider": "generic",
-        "url": "https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/latest/download"
-      }
-    ],
-    "win": {
-      "icon": "assets/icons/app-icon.ico",
-      "signAndEditExecutable": false,
-      "target": [
-        "dir"
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "哈基Mi",
-      "uninstallDisplayName": "哈基Mi",
-      "installerIcon": "assets/icons/app-icon.ico",
-      "uninstallerIcon": "assets/icons/app-icon.ico"
-    }
-  },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.133",
     "@tencent-weixin/openclaw-weixin": "^2.4.3",
@@ -80,20 +18,5 @@
     "openclaw": "^2026.5.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
-  },
-  "devDependencies": {
-    "@types/node": "^22.10.2",
-    "@types/react": "^18.3.17",
-    "@types/react-dom": "^18.3.5",
-    "concurrently": "^9.1.0",
-    "cross-env": "^7.0.3",
-    "electron": "^33.2.1",
-    "electron-builder": "^25.1.8",
-    "rcedit": "^5.0.2",
-    "sharp": "^0.34.5",
-    "typescript": "^5.7.2",
-    "vite": "^6.0.5",
-    "vitest": "^2.1.8",
-    "wait-on": "^8.0.1"
   }
 }

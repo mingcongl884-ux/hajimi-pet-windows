@@ -1,4 +1,5 @@
 import type { AnimationState } from "./atlas.js";
+import { choosePetGreeting } from "./petGreetings.js";
 
 export type LonelyCue = {
   bubble: string;
@@ -18,11 +19,6 @@ type LonelyCueOptions = {
 
 const LONELY_IDLE_MS = 45 * 60 * 1000;
 const LONELY_COOLDOWN_MS = 90 * 60 * 1000;
-const LONELY_MESSAGES = [
-  "还在吗？哈基Mi有点想你了。",
-  "好久没人理我了，我先在这里等你一下。",
-  "我有点委屈，但还是会乖乖等你回来。"
-];
 
 export function getLonelyCue(options: LonelyCueOptions): LonelyCue | undefined {
   const nowMs = options.now.getTime();
@@ -38,12 +34,8 @@ export function getLonelyCue(options: LonelyCueOptions): LonelyCue | undefined {
   }
 
   return {
-    bubble: pickLonelyMessage(nowMs),
+    bubble: choosePetGreeting("lonely", Math.floor(nowMs / 60000)),
     tone: "info",
     status: "failed"
   };
-}
-
-function pickLonelyMessage(seed: number) {
-  return LONELY_MESSAGES[Math.abs(Math.floor(seed / 60000)) % LONELY_MESSAGES.length];
 }

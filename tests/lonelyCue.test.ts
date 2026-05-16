@@ -15,7 +15,7 @@ describe("lonely pet cue", () => {
 
     expect(cue?.status).toBe("failed");
     expect(cue?.tone).toBe("info");
-    expect(cue?.bubble).toMatch(/还在吗|好久没人理我|有点委屈/);
+    expect(cue?.bubble).toMatch(/忘了哈基Mi|好久没说话|有点委屈/);
   });
 
   it("stays quiet while busy, moving, or recently cued", () => {

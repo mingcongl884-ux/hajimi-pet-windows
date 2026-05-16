@@ -1,5 +1,6 @@
 import type { ChatResponse } from "../../electron/chatClient.js";
 import type { PetAction } from "./petActions.js";
+import { choosePetGreeting } from "./petGreetings.js";
 
 export type PetInteractionIntent = {
   reply: string;
@@ -20,7 +21,7 @@ export function resolvePetInteractionIntent(input: string): PetInteractionIntent
 
   if (QUIET_WORDS.test(text)) {
     return {
-      reply: "好，我安静一会儿。",
+      reply: choosePetGreeting("quiet"),
       actions: [
         { type: "stopMovement" },
         { type: "mood", mood: "idle" }

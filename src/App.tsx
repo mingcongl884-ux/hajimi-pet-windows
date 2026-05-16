@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import ChatPanel from "./components/ChatPanel";
 import ManagerPage from "./components/ManagerPage";
 import PetBubble from "./components/PetBubble";
@@ -28,6 +28,7 @@ import { ensureProjects } from "./lib/projects";
 import { getModelSettingsById, getPetModelSettings } from "./lib/modelProfiles";
 import { buildPetJumpCommand, buildPetMoveCommand, resolveEdgePosition, resolveVisiblePetPosition, type PetMoveCommand, type PetEdge } from "./lib/petMotion";
 import { intentToAssistantMessage, resolvePetInteractionIntent } from "./lib/petInteractionIntents";
+import { choosePetGreeting } from "./lib/petGreetings";
 import { resolveReminderTarget } from "./lib/reminderTarget";
 
 type AppMode = "pet" | "manager";
@@ -60,7 +61,7 @@ export default function App() {
     void window.petApp.getInitialState().then((nextState) => {
       setState(withActiveConversation(nextState));
     }).catch((err) => {
-      setError(err instanceof Error ? err.message : "启动失败");
+      setError(err instanceof Error ? err.message : "鍚姩澶辫触");
     });
     return window.petApp.onStateChanged((nextState) => setState(withActiveConversation(nextState)));
   }, []);
@@ -266,7 +267,7 @@ export default function App() {
     const triggerLonelyCue = () => {
       setChatOpen(false);
       setTimedPetStatus("failed", 8000);
-      showBubble("还在吗？哈基Mi有点想你了。", "info");
+      showBubble(choosePetGreeting("lonely"), "info");
     };
 
     window.addEventListener("hajimi:trigger-lonely-cue", triggerLonelyCue);
@@ -435,7 +436,7 @@ export default function App() {
 
   function isCancelledChatError(errorValue: unknown) {
     const message = readErrorMessage(errorValue);
-    return /已停止|cancel|abort/i.test(message);
+    return /宸插仠姝cancel|abort/i.test(message);
   }
 
   async function sendMessage(input: string | ChatMessage) {
@@ -762,15 +763,13 @@ export default function App() {
           movementIntensity: action.intensity ?? baseSettings.movementIntensity
         };
         await persistSettings(nextSettings);
-        setTimedPetStatus(action.enabled ? "running" : "idle", action.enabled ? 900 : 0);
-        showBubble(action.enabled ? "好呀，我自己去玩一会儿。" : "好，我安静一点。", "info");
+        showBubble(action.enabled ? "好呀，我自己去玩一会儿。" : choosePetGreeting("quiet"), "info");
       }
       if (action.type === "stopMovement") {
         if (baseSettings) {
           await persistSettings({ ...baseSettings, movementEnabled: false });
         }
-        setTimedPetStatus("idle", 0);
-        showBubble("好，我安静一点。", "info");
+        showBubble(choosePetGreeting("quiet"), "info");
       }
     }
   }
@@ -876,7 +875,7 @@ function readErrorMessage(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
     return String((error as { message: unknown }).message);
   }
-  return "聊天请求失败";
+  return "鑱婂ぉ璇锋眰澶辫触";
 }
 
 function labelPetResponse(response: ChatMessage, displayName: string, enabled: boolean): ChatMessage {

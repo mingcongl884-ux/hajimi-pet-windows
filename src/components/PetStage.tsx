@@ -33,6 +33,7 @@ const HOVER_CURSOR_POLL_MS = 120;
 const HOVER_CURSOR_STALE_MS = 500;
 const HOVER_REACTIONS: AnimationState[] = ["waving", "jumping"];
 const KEYBOARD_CONTROL_SPEED_PX_PER_SECOND = 190;
+const KEYBOARD_CONTROL_KEY_HOLD_MS = 420;
 const KEYBOARD_JUMP_DURATION_MS = 680;
 const KEYBOARD_JUMP_HEIGHT = 72;
 
@@ -60,6 +61,7 @@ export default function PetStage({
   const hoverCursorPollPendingRef = useRef(false);
   const hoverReactionRef = useRef<AnimationState>("waving");
   const keyboardControlKeysRef = useRef<Set<PetControlKey>>(new Set());
+  const keyboardControlKeyExpirationsRef = useRef<Map<PetControlKey, number>>(new Map());
   const keyboardDirectionRef = useRef<1 | -1>(1);
   const keyboardGroundPositionRef = useRef({ x: windowBounds.x, y: windowBounds.y });
   const keyboardJumpRef = useRef<{ startedAt: number; durationMs: number; height: number }>();
@@ -168,6 +170,15 @@ export default function PetStage({
   }, [chatOpen]);
 
   useEffect(() => {
+    return window.petApp.onKeyboardControl((controlKey) => {
+      if (!settings.keyboardControlEnabled || chatOpen) {
+        return;
+      }
+      triggerKeyboardControlKey(controlKey);
+    });
+  }, [chatOpen, settings.keyboardControlEnabled]);
+
+  useEffect(() => {
     if (!settings.keyboardControlEnabled) {
       clearKeyboardControl();
       return;
@@ -183,22 +194,7 @@ export default function PetStage({
       }
 
       event.preventDefault();
-      clearHoverReaction();
-      playCommandRef.current = undefined;
-
-      if (controlKey === "jump") {
-        if (!keyboardJumpRef.current) {
-          keyboardJumpRef.current = {
-            startedAt: performance.now(),
-            durationMs: KEYBOARD_JUMP_DURATION_MS,
-            height: KEYBOARD_JUMP_HEIGHT
-          };
-          frameRef.current = 0;
-        }
-        return;
-      }
-
-      keyboardControlKeysRef.current.add(controlKey);
+      triggerKeyboardControlKey(controlKey);
     };
 
     const handleKeyboardControlKeyUp = (event: KeyboardEvent) => {
@@ -207,6 +203,7 @@ export default function PetStage({
         return;
       }
       keyboardControlKeysRef.current.delete(controlKey);
+      keyboardControlKeyExpirationsRef.current.delete(controlKey);
     };
 
     window.addEventListener("keydown", handleKeyboardControlKeyDown);
@@ -432,10 +429,38 @@ export default function PetStage({
 
   function clearKeyboardControl() {
     keyboardControlKeysRef.current.clear();
+    keyboardControlKeyExpirationsRef.current.clear();
     keyboardJumpRef.current = undefined;
   }
 
+  function triggerKeyboardControlKey(controlKey: PetControlKey) {
+    clearHoverReaction();
+    playCommandRef.current = undefined;
+
+    if (controlKey === "jump") {
+      startKeyboardJump();
+      return;
+    }
+
+    keyboardControlKeysRef.current.add(controlKey);
+    keyboardControlKeyExpirationsRef.current.set(controlKey, performance.now() + KEYBOARD_CONTROL_KEY_HOLD_MS);
+  }
+
+  function startKeyboardJump() {
+    if (keyboardJumpRef.current) {
+      return;
+    }
+
+    keyboardJumpRef.current = {
+      startedAt: performance.now(),
+      durationMs: KEYBOARD_JUMP_DURATION_MS,
+      height: KEYBOARD_JUMP_HEIGHT
+    };
+    frameRef.current = 0;
+  }
+
   function tickKeyboardControl(deltaMs: number, now: number) {
+    pruneExpiredKeyboardControlKeys(now);
     const bounds = getPetWindowMovementBounds(screen, { width: windowBounds.width, height: windowBounds.height }, settings.petScale);
     const snapshot = stepKeyboardControlledPet({
       keys: keyboardControlKeysRef.current,
@@ -466,6 +491,15 @@ export default function PetStage({
       y,
       animation: "jumping" as AnimationState
     };
+  }
+
+  function pruneExpiredKeyboardControlKeys(now: number) {
+    for (const [key, expiresAt] of keyboardControlKeyExpirationsRef.current) {
+      if (expiresAt <= now) {
+        keyboardControlKeyExpirationsRef.current.delete(key);
+        keyboardControlKeysRef.current.delete(key);
+      }
+    }
   }
 
   return (

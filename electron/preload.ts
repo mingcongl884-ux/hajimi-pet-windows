@@ -6,6 +6,7 @@ import type { PetAppState, PetWindowBounds } from "../src/global.js";
 import type { PetMoveCommand } from "../src/lib/petMotion.js";
 import type { PetPlayCommand } from "../src/lib/petPlay.js";
 import type { PetAction } from "../src/lib/petActions.js";
+import type { PetControlKey } from "../src/lib/petKeyboardControl.js";
 
 const petSlot = Number(new URLSearchParams(globalThis.location.search).get("slot") ?? "0");
 
@@ -46,6 +47,11 @@ contextBridge.exposeInMainWorld("petApp", {
     const listener = (_event: Electron.IpcRendererEvent, command: PetPlayCommand) => callback(command);
     ipcRenderer.on("pet:play-command", listener);
     return () => ipcRenderer.off("pet:play-command", listener);
+  },
+  onKeyboardControl: (callback: (key: PetControlKey) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, key: PetControlKey) => callback(key);
+    ipcRenderer.on("pet:keyboard-control", listener);
+    return () => ipcRenderer.off("pet:keyboard-control", listener);
   },
   onOutsideInteraction: (callback: () => void) => {
     const listener = () => callback();

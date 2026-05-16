@@ -86,6 +86,11 @@ describe("pet stage source", () => {
     expect(source).toContain("normalizePetControlKey");
     expect(source).toContain("stepKeyboardControlledPet");
     expect(source).toContain("settings.keyboardControlEnabled");
+    expect(source).toContain("onKeyboardControl");
+    expect(source).toContain("triggerKeyboardControlKey");
+    expect(source).toContain("KEYBOARD_CONTROL_KEY_HOLD_MS");
+    expect(source).toContain("keyboardControlKeyExpirationsRef");
+    expect(source).toContain("pruneExpiredKeyboardControlKeys");
     expect(source).toContain('window.addEventListener("keydown", handleKeyboardControlKeyDown)');
     expect(source).toContain('window.addEventListener("keyup", handleKeyboardControlKeyUp)');
     expect(source).toContain("keyboardControlActive");
