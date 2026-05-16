@@ -5,6 +5,8 @@ import type { ChannelSettings } from "../src/lib/channels.js";
 import { cloneChannelSettings, defaultChannelSettings } from "../src/lib/channels.js";
 import type { MovementIntensity } from "../src/lib/movement.js";
 import { ensureProjects } from "../src/lib/projects.js";
+import type { RemoteBridgeSettings } from "../src/lib/remoteBridge.js";
+import { cloneRemoteBridgeSettings, defaultRemoteBridgeSettings } from "../src/lib/remoteBridge.js";
 
 export type ApiSettings = {
   baseUrl: string;
@@ -100,6 +102,7 @@ export type AppSettings = {
   heartbeat: HeartbeatSettings;
   network: NetworkSettings;
   channels: ChannelSettings[];
+  remoteBridge: RemoteBridgeSettings;
   activeConversationId: string;
   conversations: PetConversation[];
 };
@@ -180,6 +183,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     readNoticeIds: []
   },
   channels: defaultChannelSettings(),
+  remoteBridge: defaultRemoteBridgeSettings(),
   activeConversationId: "default",
   conversations: [
     {
@@ -278,6 +282,7 @@ export class SettingsStore {
       heartbeat: { ...DEFAULT_SETTINGS.heartbeat, sentGreetingKeys: [] },
       network: { ...DEFAULT_SETTINGS.network, readNoticeIds: [] },
       channels: cloneChannelSettings(DEFAULT_SETTINGS.channels),
+      remoteBridge: cloneRemoteBridgeSettings(DEFAULT_SETTINGS.remoteBridge),
       conversations: DEFAULT_SETTINGS.conversations.map((conversation) => ({ ...conversation }))
     });
   }
@@ -338,6 +343,7 @@ export class SettingsStore {
         readNoticeIds: stored.network?.readNoticeIds ?? []
       },
       channels: cloneChannelSettings(stored.channels),
+      remoteBridge: cloneRemoteBridgeSettings(stored.remoteBridge),
       conversations: stored.conversations?.length
         ? stored.conversations
         : DEFAULT_SETTINGS.conversations.map((conversation) => ({ ...conversation })),
