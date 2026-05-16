@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld("petApp", {
   setChatOpen: (open: boolean) => ipcRenderer.invoke("pet:set-chat-open", petSlot, open),
   setMousePassthrough: (passthrough: boolean) => ipcRenderer.invoke("pet:set-mouse-passthrough", petSlot, passthrough),
   getCursorScreenPoint: () => ipcRenderer.invoke("pet:get-cursor-screen-point"),
+  getSystemStatus: () => ipcRenderer.invoke("pet:get-system-status"),
   onStateChanged: (callback: (state: PetAppState) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, state: PetAppState) => callback(state);
     ipcRenderer.on("pet:state-changed", listener);

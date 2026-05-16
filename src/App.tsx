@@ -29,6 +29,10 @@ import { getModelSettingsById, getPetModelSettings } from "./lib/modelProfiles";
 import { buildPetJumpCommand, buildPetMoveCommand, resolveEdgePosition, resolveVisiblePetPosition, type PetMoveCommand, type PetEdge } from "./lib/petMotion";
 import { intentToAssistantMessage, resolvePetInteractionIntent } from "./lib/petInteractionIntents";
 import { choosePetGreeting } from "./lib/petGreetings";
+import { getDesktopEventCue } from "./lib/desktopEventCues";
+import { formatFocusCompanionDoneBubble, resolveFocusCompanionIntent } from "./lib/focusCompanion";
+import { evolvePetMood, moodToAnimation, pickMoodBubble, type PetExperienceMood } from "./lib/petMood";
+import { formatUpdateAnnouncement } from "./lib/updateAnnouncement";
 import { resolveReminderTarget } from "./lib/reminderTarget";
 
 type AppMode = "pet" | "manager";
@@ -47,24 +51,32 @@ export default function App() {
   const [status, setStatus] = useState<AnimationState>("idle");
   const [error, setError] = useState<string>();
   const [sendingRequestId, setSendingRequestId] = useState<string>();
+  const stateRef = useRef<PetAppState>();
   const busyRef = useRef(false);
   const activeRequestIdRef = useRef<string>();
   const lastInteractionRef = useRef(Date.now());
   const seenWorkCueKeysRef = useRef<Set<string>>(new Set());
+  const seenDesktopCueKeysRef = useRef<Set<string>>(new Set());
   const cursorPositionRef = useRef({ x: 0, y: 0, at: 0 });
   const lastLonelyCueAtRef = useRef(0);
   const networkCheckStartedRef = useRef(false);
   const mousePassthroughRef = useRef<boolean>();
   const petActionStatusTimeoutRef = useRef<number>();
+  const focusCompanionTimerRef = useRef<number>();
+  const petMoodRef = useRef<PetExperienceMood>("idle");
 
   useEffect(() => {
     void window.petApp.getInitialState().then((nextState) => {
       setState(withActiveConversation(nextState));
     }).catch((err) => {
-      setError(err instanceof Error ? err.message : "鍚姩澶辫触");
+      setError(err instanceof Error ? err.message : "启动失败");
     });
     return window.petApp.onStateChanged((nextState) => setState(withActiveConversation(nextState)));
   }, []);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     if (mode === "manager") {
@@ -308,6 +320,40 @@ export default function App() {
       return;
     }
 
+    const tick = async () => {
+      try {
+        const [battery, systemStatus] = await Promise.all([
+          readBatteryStatus(),
+          window.petApp.getSystemStatus().catch(() => undefined)
+        ]);
+        const cue = getDesktopEventCue({
+          online: navigator.onLine,
+          battery,
+          memory: systemStatus?.memory,
+          seenCueKeys: seenDesktopCueKeysRef.current
+        });
+        if (!cue || bubble || chatOpen) {
+          return;
+        }
+        seenDesktopCueKeysRef.current.add(cue.key);
+        updatePetMood("workTooLong");
+        setTimedPetStatus(cue.status, 1800);
+        showBubble(cue.bubble, "info");
+      } catch {
+        // Desktop status is helpful but optional.
+      }
+    };
+
+    void tick();
+    const timer = window.setInterval(tick, 5 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [bubble, chatOpen, mode, state]);
+
+  useEffect(() => {
+    if (!state || mode === "manager") {
+      return;
+    }
+
     const tick = () => {
       void runHeartbeatCheck();
     };
@@ -317,7 +363,11 @@ export default function App() {
   }, [mode, state]);
 
   useEffect(() => {
-    if (!state?.settings.network.autoCheckEnabled || networkCheckStartedRef.current) {
+    if (!state?.settings.network.autoCheckEnabled) {
+      networkCheckStartedRef.current = false;
+      return;
+    }
+    if (networkCheckStartedRef.current) {
       return;
     }
 
@@ -327,7 +377,10 @@ export default function App() {
     };
     run();
     const timer = window.setInterval(run, 6 * 60 * 60 * 1000);
-    return () => window.clearInterval(timer);
+    return () => {
+      networkCheckStartedRef.current = false;
+      window.clearInterval(timer);
+    };
   }, [state?.settings.network.autoCheckEnabled]);
 
   useEffect(() => {
@@ -335,8 +388,40 @@ export default function App() {
       if (petActionStatusTimeoutRef.current) {
         window.clearTimeout(petActionStatusTimeoutRef.current);
       }
+      if (focusCompanionTimerRef.current) {
+        window.clearTimeout(focusCompanionTimerRef.current);
+      }
     };
   }, []);
+
+  function updatePetMood(event: Parameters<typeof evolvePetMood>[1]) {
+    const next = evolvePetMood(petMoodRef.current, event);
+    petMoodRef.current = next.mood;
+    setTimedPetStatus(moodToAnimation(next.mood), next.mood === "idle" ? 0 : 1400);
+    return next;
+  }
+
+  function startFocusCompanion(title: string, durationMinutes: number) {
+    if (focusCompanionTimerRef.current) {
+      window.clearTimeout(focusCompanionTimerRef.current);
+    }
+
+    updatePetMood("focusStarted");
+    const durationMs = durationMinutes * 60 * 1000;
+    focusCompanionTimerRef.current = window.setTimeout(() => {
+      focusCompanionTimerRef.current = undefined;
+      updatePetMood("taskCompleted");
+      setChatOpen(false);
+      showBubble(formatFocusCompanionDoneBubble(title), "info");
+    }, durationMs);
+  }
+
+  async function readBatteryStatus() {
+    const navigatorWithBattery = navigator as Navigator & {
+      getBattery?: () => Promise<{ charging: boolean; level: number }>;
+    };
+    return navigatorWithBattery.getBattery?.();
+  }
 
   async function runHeartbeatCheck() {
     if (!state || !state.settings.heartbeat.enabled || busyRef.current) {
@@ -376,7 +461,8 @@ export default function App() {
   }
 
   async function runNetworkCheck() {
-    if (!state?.settings.network.autoCheckEnabled) {
+    const currentState = stateRef.current;
+    if (!currentState?.settings.network.autoCheckEnabled) {
       return;
     }
 
@@ -394,7 +480,7 @@ export default function App() {
     try {
       const update = await window.petApp.checkUpdates();
       if (update.status === "available" && update.version) {
-        showBubble(`发现新版本 ${update.version}，可以在系统页检查更新。`, "info");
+        showBubble(formatUpdateAnnouncement(update), "info");
       }
     } catch {
       // Update checks are best-effort.
@@ -436,7 +522,7 @@ export default function App() {
 
   function isCancelledChatError(errorValue: unknown) {
     const message = readErrorMessage(errorValue);
-    return /宸插仠姝cancel|abort/i.test(message);
+    return /已停止|cancel|abort/i.test(message);
   }
 
   async function sendMessage(input: string | ChatMessage) {
@@ -487,6 +573,7 @@ export default function App() {
       busyRef.current = false;
       const petActions = response.petActions ?? [];
       await applyPetActions(petActions, responseSettings);
+      updatePetMood(agentMode ? "taskCompleted" : "userReturned");
       if (!petActions.some((action) => action.type === "say")) {
         showBubble(labelledResponse.content, "info");
       }
@@ -554,6 +641,7 @@ export default function App() {
       busyRef.current = false;
       const petActions = response.petActions ?? [];
       await applyPetActions(petActions, responseSettings);
+      updatePetMood(officeUsesWorkAgent ? "taskCompleted" : "userReturned");
       if (!petActions.some((action) => action.type === "say")) {
         showBubble(labelledResponse.content, "info");
       }
@@ -582,6 +670,28 @@ export default function App() {
     if (!state) {
       return false;
     }
+    const focusIntent = resolveFocusCompanionIntent(content);
+    if (focusIntent) {
+      const response = {
+        role: "assistant" as const,
+        content: `好，我陪你专注 ${focusIntent.durationMinutes} 分钟：${focusIntent.title}。`,
+        petActions: [{ type: "mood" as const, mood: "working" as const }]
+      };
+      const labelledResponse = labelPetResponse(response, displayName, state.settings.activePetIds.length > 1);
+      const responseSettings = appendConversationMessages(
+        state.settings,
+        conversationId,
+        [userMessage, labelledResponse],
+        modeForRequest
+      );
+      setState({ ...state, settings: responseSettings });
+      setError(undefined);
+      await persistSettings(responseSettings);
+      startFocusCompanion(focusIntent.title, focusIntent.durationMinutes);
+      showBubble(pickMoodBubble("focused"), "info");
+      return true;
+    }
+
     const intent = resolvePetInteractionIntent(content);
     if (!intent) {
       return false;
@@ -688,12 +798,16 @@ export default function App() {
   function setTimedPetStatus(nextStatus: AnimationState, durationMs: number) {
     if (petActionStatusTimeoutRef.current) {
       window.clearTimeout(petActionStatusTimeoutRef.current);
+      petActionStatusTimeoutRef.current = undefined;
     }
     setStatus(nextStatus);
     if (nextStatus === "idle" || durationMs <= 0) {
       return;
     }
-    petActionStatusTimeoutRef.current = window.setTimeout(() => setStatus("idle"), durationMs);
+    petActionStatusTimeoutRef.current = window.setTimeout(() => {
+      petActionStatusTimeoutRef.current = undefined;
+      setStatus("idle");
+    }, durationMs);
   }
 
   function playPetMove(command: PetMoveCommand) {
@@ -742,6 +856,15 @@ export default function App() {
         await playPetMoveToEdge(action.edge);
       }
       if (action.type === "mood") {
+        if (action.mood === "happy") {
+          updatePetMood("praised");
+        }
+        if (action.mood === "working" || action.mood === "review" || action.mood === "waiting") {
+          updatePetMood("focusStarted");
+        }
+        if (action.mood === "failed") {
+          updatePetMood("ignoredTooLong");
+        }
         const moodStatus: Record<typeof action.mood, AnimationState> = {
           idle: "idle",
           happy: "waving",
@@ -763,12 +886,14 @@ export default function App() {
           movementIntensity: action.intensity ?? baseSettings.movementIntensity
         };
         await persistSettings(nextSettings);
+        updatePetMood(action.enabled ? "userReturned" : "quietRequested");
         showBubble(action.enabled ? "好呀，我自己去玩一会儿。" : choosePetGreeting("quiet"), "info");
       }
       if (action.type === "stopMovement") {
         if (baseSettings) {
           await persistSettings({ ...baseSettings, movementEnabled: false });
         }
+        updatePetMood("quietRequested");
         showBubble(choosePetGreeting("quiet"), "info");
       }
     }
@@ -875,7 +1000,7 @@ function readErrorMessage(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
     return String((error as { message: unknown }).message);
   }
-  return "鑱婂ぉ璇锋眰澶辫触";
+  return "聊天请求失败";
 }
 
 function labelPetResponse(response: ChatMessage, displayName: string, enabled: boolean): ChatMessage {

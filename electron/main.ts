@@ -13,6 +13,7 @@ import {
 } from "electron";
 import type { OpenDialogOptions } from "electron";
 import { appendFile, cp, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { freemem, totalmem } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAgentTask as runLegacyAgentTask } from "./agentClient.js";
@@ -429,6 +430,12 @@ function registerIpc() {
     petWindows.get(slot)?.setIgnoreMouseEvents(passthrough, { forward: true });
   });
   ipcMain.handle("pet:get-cursor-screen-point", () => screen.getCursorScreenPoint());
+  ipcMain.handle("pet:get-system-status", () => ({
+    memory: {
+      totalBytes: totalmem(),
+      freeBytes: freemem()
+    }
+  }));
 }
 
 async function runOrdinaryOfficeTask(

@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkRemoteNotices, markNoticeRead } from "../electron/networkClient";
+import {
+  checkRemoteNotices,
+  fetchReleaseNotesFromFeedUrl,
+  markNoticeRead,
+  readReleaseNotes,
+  resolveGitHubLatestReleaseApiUrl
+} from "../electron/networkClient";
 import { DEFAULT_SETTINGS, GITHUB_NOTICE_FEED_URL, GITHUB_UPDATE_FEED_URL } from "../electron/settingsStore";
 
 const networkClientSource = readFileSync(join(process.cwd(), "electron", "networkClient.ts"), "utf8");
@@ -61,5 +67,33 @@ describe("network client", () => {
     }, "n1");
 
     expect(settings.network.readNoticeIds).toEqual(["n1"]);
+  });
+
+  it("normalizes release notes from updater metadata", () => {
+    expect(readReleaseNotes(" - 修复上传\n - 增加冒泡 ")).toBe("- 修复上传\n - 增加冒泡");
+    expect(readReleaseNotes([{ note: "加入心跳气泡" }, { note: "优化宠物动作" }])).toBe("加入心跳气泡\n优化宠物动作");
+    expect(readReleaseNotes([{ title: "empty" }])).toBeUndefined();
+  });
+
+  it("resolves GitHub latest release API URL from the generic update feed", () => {
+    expect(resolveGitHubLatestReleaseApiUrl(GITHUB_UPDATE_FEED_URL)).toBe(
+      "https://api.github.com/repos/mingcongl884-ux/hajimi-pet-windows/releases/latest"
+    );
+    expect(resolveGitHubLatestReleaseApiUrl("https://example.com/releases/latest/download")).toBeUndefined();
+  });
+
+  it("fetches GitHub release body as update notes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ body: "- 新增专注陪伴\n- 宠物会提醒休息" })
+    });
+
+    await expect(fetchReleaseNotesFromFeedUrl(GITHUB_UPDATE_FEED_URL, fetchMock as unknown as typeof fetch)).resolves.toBe(
+      "- 新增专注陪伴\n- 宠物会提醒休息"
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/repos/mingcongl884-ux/hajimi-pet-windows/releases/latest",
+      expect.objectContaining({ headers: expect.objectContaining({ Accept: "application/vnd.github+json" }) })
+    );
   });
 });

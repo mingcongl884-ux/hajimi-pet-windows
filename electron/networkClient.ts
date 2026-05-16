@@ -7,13 +7,21 @@ export type UpdateCheckResult = {
   currentVersion: string;
   version?: string;
   message?: string;
+  releaseNotes?: string;
 };
 
 type NoticeFeed = {
   notices?: RemoteNotice[];
 };
 
-export async function checkForAppUpdates(network: NetworkSettings): Promise<UpdateCheckResult> {
+type GitHubRelease = {
+  body?: string;
+};
+
+export async function checkForAppUpdates(
+  network: NetworkSettings,
+  fetchImpl: typeof fetch = fetch
+): Promise<UpdateCheckResult> {
   const currentVersion = app.getVersion();
   const unavailable = readUpdateUnavailable(network, currentVersion);
   if (unavailable) {
@@ -26,8 +34,14 @@ export async function checkForAppUpdates(network: NetworkSettings): Promise<Upda
     autoUpdater.setFeedURL({ provider: "generic", url: network.updateFeedUrl.trim().replace(/\/+$/, "") });
     const result = await autoUpdater.checkForUpdates();
     const version = result?.updateInfo?.version;
+    const releaseNotes =
+      readReleaseNotes((result?.updateInfo as { releaseNotes?: unknown } | undefined)?.releaseNotes) ??
+      (version && version !== currentVersion
+        ? await fetchReleaseNotesFromFeedUrl(network.updateFeedUrl, fetchImpl).catch(() => undefined)
+        : undefined);
+
     return version && version !== currentVersion
-      ? { status: "available", currentVersion, version, message: `发现新版本 ${version}。` }
+      ? { status: "available", currentVersion, version, releaseNotes, message: `发现新版本 ${version}。` }
       : { status: "not-available", currentVersion, version: currentVersion, message: "已经是最新版本。" };
   } catch (error) {
     return {
@@ -123,6 +137,71 @@ export function markNoticeRead(settings: AppSettings, noticeId: string): AppSett
       readNoticeIds
     }
   };
+}
+
+export function readReleaseNotes(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value.trim() || undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const notes = value
+    .map((item) => {
+      if (typeof item === "string") {
+        return item;
+      }
+      if (item && typeof item === "object" && "note" in item) {
+        const note = (item as { note?: unknown }).note;
+        return typeof note === "string" ? note : "";
+      }
+      return "";
+    })
+    .map((note) => note.trim())
+    .filter(Boolean);
+
+  return notes.length ? notes.join("\n") : undefined;
+}
+
+export async function fetchReleaseNotesFromFeedUrl(
+  feedUrl: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<string | undefined> {
+  const apiUrl = resolveGitHubLatestReleaseApiUrl(feedUrl);
+  if (!apiUrl) {
+    return undefined;
+  }
+
+  const response = await fetchImpl(apiUrl, {
+    headers: {
+      Accept: "application/vnd.github+json"
+    }
+  });
+  if (!response.ok) {
+    return undefined;
+  }
+
+  const release = (await response.json()) as GitHubRelease;
+  return typeof release.body === "string" ? release.body.trim() || undefined : undefined;
+}
+
+export function resolveGitHubLatestReleaseApiUrl(feedUrl: string): string | undefined {
+  try {
+    const url = new URL(feedUrl.trim());
+    const parts = url.pathname.split("/").filter(Boolean);
+    const releasesIndex = parts.indexOf("releases");
+    if (url.hostname !== "github.com" || releasesIndex < 2) {
+      return undefined;
+    }
+
+    const owner = parts[0];
+    const repo = parts[1];
+    return `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
+  } catch {
+    return undefined;
+  }
 }
 
 function readUpdateUnavailable(network: NetworkSettings, currentVersion: string): UpdateCheckResult | undefined {

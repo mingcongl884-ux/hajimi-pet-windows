@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld("petApp", {
   setChatOpen: (open) => ipcRenderer.invoke("pet:set-chat-open", petSlot, open),
   setMousePassthrough: (passthrough) => ipcRenderer.invoke("pet:set-mouse-passthrough", petSlot, passthrough),
   getCursorScreenPoint: () => ipcRenderer.invoke("pet:get-cursor-screen-point"),
+  getSystemStatus: () => ipcRenderer.invoke("pet:get-system-status"),
   onStateChanged: (callback) => {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on("pet:state-changed", listener);

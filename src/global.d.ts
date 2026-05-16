@@ -39,6 +39,13 @@ export type ScreenPoint = {
   y: number;
 };
 
+export type SystemStatus = {
+  memory: {
+    totalBytes: number;
+    freeBytes: number;
+  };
+};
+
 declare global {
   interface Window {
     petApp: {
@@ -69,6 +76,7 @@ declare global {
       setChatOpen(open: boolean): Promise<void>;
       setMousePassthrough(passthrough: boolean): Promise<void>;
       getCursorScreenPoint(): Promise<ScreenPoint>;
+      getSystemStatus(): Promise<SystemStatus>;
       onStateChanged(callback: (state: PetAppState) => void): () => void;
       onPlayCommand(callback: (command: PetPlayCommand) => void): () => void;
       onKeyboardControl(callback: (key: PetControlKey) => void): () => void;

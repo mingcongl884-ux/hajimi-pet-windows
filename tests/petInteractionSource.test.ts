@@ -82,7 +82,9 @@ describe("pet interaction source", () => {
     expect(appSource).toContain("async function playPetJump");
     expect(appSource).toContain("async function playPetMoveToEdge");
     expect(appSource).toContain("setTimedPetStatus(command.animation, command.durationMs)");
-    expect(appSource).toContain('window.setTimeout(() => setStatus("idle"), durationMs)');
+    expect(appSource).toContain("petActionStatusTimeoutRef.current = window.setTimeout");
+    expect(appSource).toContain('setStatus("idle");');
+    expect(appSource).toContain("petActionStatusTimeoutRef.current = undefined");
     expect(preloadSource).toContain("getPetWindowBounds");
     expect(globalSource).toContain("getPetWindowBounds(): Promise");
     expect(appSource).toMatch(/if \(action\.type === "moveTo" && state\) \{[\s\S]*await playPetMoveToPoint/);
