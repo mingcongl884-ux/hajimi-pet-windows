@@ -44,7 +44,7 @@ type ToolCall = {
   };
 };
 
-type ToolResult = {
+export type ToolResult = {
   content: string;
   fileOutput?: ChatFileOutput;
   fileOutputs?: ChatFileOutput[];
@@ -338,7 +338,7 @@ async function executeToolCall(agent: AgentSettings, toolCall: ToolCall): Promis
   }
 }
 
-async function listFiles(workspaceDir: string, relativePath: string): Promise<string> {
+export async function listFiles(workspaceDir: string, relativePath: string): Promise<string> {
   const dir = resolveWorkspacePath(workspaceDir, relativePath);
   const entries = await readdir(dir, { withFileTypes: true });
   return entries
@@ -347,7 +347,7 @@ async function listFiles(workspaceDir: string, relativePath: string): Promise<st
     .join("\n") || "(empty)";
 }
 
-async function readTextFile(workspaceDir: string, relativePath: string): Promise<string> {
+export async function readTextFile(workspaceDir: string, relativePath: string): Promise<string> {
   const filePath = resolveWorkspacePath(workspaceDir, relativePath);
   return trimToolOutput(await readFile(filePath, "utf8"));
 }
@@ -379,7 +379,7 @@ async function searchFiles(
   return `Search failed:\n${result.output}`;
 }
 
-async function writeTextFile(agent: AgentSettings, relativePath: string, content: string): Promise<ToolResult> {
+export async function writeTextFile(agent: AgentSettings, relativePath: string, content: string): Promise<ToolResult> {
   const filePath = resolveWritablePath(agent, relativePath);
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, content, "utf8");
@@ -393,7 +393,7 @@ async function writeTextFile(agent: AgentSettings, relativePath: string, content
   };
 }
 
-async function openApplication(agent: AgentSettings, appName: string): Promise<string> {
+export async function openApplication(agent: AgentSettings, appName: string): Promise<string> {
   const policy = getCommandPolicy(agent);
   if (!policy.enabled) {
     return "Application launch is disabled in the current permission mode. Switch to auto-review or full-access and try again.";
@@ -436,7 +436,7 @@ function psSingleQuote(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-async function runCommand(agent: AgentSettings, command: string): Promise<string> {
+export async function runCommand(agent: AgentSettings, command: string): Promise<string> {
   const policy = getCommandPolicy(agent);
   if (!policy.enabled) {
     return "Command execution is disabled in settings.";
