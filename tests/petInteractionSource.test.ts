@@ -10,6 +10,7 @@ const mainSource = readFileSync(join(process.cwd(), "electron", "main.ts"), "utf
 const preloadSource = readFileSync(join(process.cwd(), "electron", "preload.ts"), "utf8");
 const preloadCjsSource = readFileSync(join(process.cwd(), "electron", "preload.cjs"), "utf8");
 const globalSource = readFileSync(join(process.cwd(), "src", "global.d.ts"), "utf8");
+const runtimeEffectsSource = readFileSync(join(process.cwd(), "src", "hooks", "usePetRuntimeEffects.ts"), "utf8");
 
 describe("pet interaction source", () => {
   it("does not render the old always-visible floating action buttons", () => {
@@ -38,8 +39,8 @@ describe("pet interaction source", () => {
   });
 
   it("auto-hides the bubble after a short idle window", () => {
-    expect(appSource).toContain("const BUBBLE_AUTO_HIDE_MS = 15000;");
-    expect(appSource).toMatch(/window\.setTimeout\(\(\) => setBubble\(undefined\), BUBBLE_AUTO_HIDE_MS\)/);
+    expect(runtimeEffectsSource).toContain("const BUBBLE_AUTO_HIDE_MS = 15000;");
+    expect(runtimeEffectsSource).toMatch(/window\.setTimeout\(\(\) => runtimeRef\.current\.setBubble\(undefined\), BUBBLE_AUTO_HIDE_MS\)/);
   });
 
   it("never renders a reminder bubble at the same time as the chat panel", () => {
