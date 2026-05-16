@@ -48,6 +48,38 @@ export async function stopChannelAdapter(channel: ChannelSettings): Promise<Chan
   return { provider: channel.provider, status: "disabled", message: `${channel.displayName} 已停止。` };
 }
 
+export async function restoreChannelAdapter(channel: ChannelSettings): Promise<ChannelAdapterResult> {
+  if (channel.provider === "wechat") {
+    if (hasBundledWeixinAccount()) {
+      return {
+        provider: channel.provider,
+        status: "connected",
+        message: "已恢复微信 ClawBot 登录凭据，正在后台接入微信消息。"
+      };
+    }
+
+    return {
+      provider: channel.provider,
+      status: "starting",
+      message: "微信通道已启用，但还没有检测到登录凭据。需要时请手动扫码。"
+    };
+  }
+
+  if (channel.provider === "feishu") {
+    if (!channel.feishu?.appId.trim() || !channel.feishu.appSecret.trim()) {
+      return { provider: channel.provider, status: "error", message: "飞书通道已启用，但 App ID 或 App Secret 未填写。" };
+    }
+
+    return {
+      provider: channel.provider,
+      status: "starting",
+      message: "飞书通道已启用，将在后台等待已有 OpenClaw 网关连接。"
+    };
+  }
+
+  return { provider: channel.provider, status: "error", message: "未知通道。" };
+}
+
 export async function testChannelAdapter(channel: ChannelSettings): Promise<ChannelAdapterResult> {
   if (channel.provider === "wechat" && hasBundledWeixinAccount()) {
     return {

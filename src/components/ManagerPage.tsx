@@ -1,9 +1,7 @@
 import {
   Bot,
-  BriefcaseBusiness,
   Check,
   ChevronDown,
-  ChevronRight,
   Copy,
   Download,
   FolderOpen,
@@ -13,9 +11,7 @@ import {
   Plus,
   RefreshCw,
   Send,
-  Settings2,
   ShieldCheck,
-  SlidersHorizontal,
   Sparkles,
   Square,
   Trash2,
@@ -33,6 +29,20 @@ import { openClawSetupSteps, type ChannelProvider, type ChannelSettings } from "
 import { ensureProjects } from "../lib/projects";
 import { buildAttachmentMessage, fileToPromptAttachment, type PromptAttachment } from "../lib/fileMessage";
 import { ensureModelProfiles, upsertModelProfile } from "../lib/modelProfiles";
+import { capabilityStatusLabel, summarizeCapabilities, type CapabilityCheckResult } from "../lib/capabilityCheck";
+import { buildProjectMemorySuggestion, type ProjectMemorySuggestion } from "../lib/projectMemory";
+import {
+  formatTaskElapsed,
+  formatTaskStatus
+} from "../lib/taskCards";
+import {
+  cancelOfficeTask,
+  completeOfficeTask,
+  createOfficeTaskState,
+  failOfficeTask,
+  startOfficeTask
+} from "../lib/officeTaskState";
+import ManagerSidebar, { type ManagerSection } from "./ManagerSidebar";
 
 type Props = {
   state: PetAppState;
@@ -55,20 +65,9 @@ type Props = {
   onSwitchConversation(conversationId: string): Promise<void>;
   onDeleteConversation(conversationId: string): Promise<void>;
   onRenameConversation(conversationId: string, title: string): Promise<void>;
-  onSendMessage(message: ChatMessage): Promise<void>;
-  onSendOfficeMessage(message: ChatMessage): Promise<void>;
+  onSendOfficeMessage(message: ChatMessage, modelId?: string): Promise<void>;
   onCancelMessage(): Promise<void> | void;
 };
-
-type ManagerSection = "office" | "pets" | "models" | "channels" | "system";
-
-const navItems: Array<{ id: ManagerSection; label: string; icon: typeof Bot }> = [
-  { id: "office", label: "办公区", icon: BriefcaseBusiness },
-  { id: "pets", label: "宠物", icon: Bot },
-  { id: "models", label: "模型", icon: Settings2 },
-  { id: "channels", label: "通道", icon: MessageCircle },
-  { id: "system", label: "系统", icon: SlidersHorizontal }
-];
 
 const permissionOptions: Array<{ id: AgentPermissionMode; label: string; description: string }> = [
   { id: "default", label: "默认权限", description: "读写项目文件，命令需要提高权限后执行。" },
@@ -77,7 +76,7 @@ const permissionOptions: Array<{ id: AgentPermissionMode; label: string; descrip
 ];
 
 const providerOptions: Array<{ id: ModelProvider; label: string; description: string }> = [
-  { id: "openai-compatible", label: "OpenAI 兼容", description: "普通聊天和内置办公工具代理，适合大多数兼容接口。" },
+  { id: "openai-compatible", label: "OpenAI 兼容", description: "内置办公工具代理，适合大多数兼容接口。" },
   { id: "claude-agent", label: "Claude Agent SDK", description: "高级办公模式，使用 Claude Code 同源的 Agent SDK 工具循环。" }
 ];
 
@@ -123,7 +122,12 @@ export default function ManagerPage({
   const [pendingOfficeAttachments, setPendingOfficeAttachments] = useState<PromptAttachment[]>([]);
   const [officeDragActive, setOfficeDragActive] = useState(false);
   const [officeElapsedMs, setOfficeElapsedMs] = useState(1000);
+  const [officeTask, setOfficeTask] = useState(() => createOfficeTaskState());
+  const [lastFailedOfficeMessage, setLastFailedOfficeMessage] = useState<ChatMessage>();
   const [networkMessage, setNetworkMessage] = useState<string>();
+  const [capabilityResult, setCapabilityResult] = useState<CapabilityCheckResult>();
+  const [checkingCapabilities, setCheckingCapabilities] = useState(false);
+  const [projectMemorySuggestion, setProjectMemorySuggestion] = useState<ProjectMemorySuggestion>();
   const [channelMessage, setChannelMessage] = useState<string>();
   const [channelBusyProvider, setChannelBusyProvider] = useState<ChannelProvider>();
   const [checkingNetwork, setCheckingNetwork] = useState(false);
@@ -134,10 +138,13 @@ export default function ManagerPage({
   const [renamingPetId, setRenamingPetId] = useState<string>();
   const [renamingPetName, setRenamingPetName] = useState("");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [permissionMenuOpen, setPermissionMenuOpen] = useState(false);
   const officeFileInputRef = useRef<HTMLInputElement>(null);
   const officeDraftInputRef = useRef<HTMLInputElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
+  const permissionMenuRef = useRef<HTMLDivElement>(null);
+  const officeCancelRequestedRef = useRef(false);
 
   useEffect(() => setSettings(ensureProjects(ensureModelProfiles(state.settings))), [state.settings]);
   useEffect(() => {
@@ -154,18 +161,25 @@ export default function ManagerPage({
     );
   }, [settings.activeProjectId, settings.projects]);
   useEffect(() => {
-    if (!modelMenuOpen) {
+    if (!modelMenuOpen && !permissionMenuOpen) {
       return;
     }
 
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (event.target instanceof Node && !modelMenuRef.current?.contains(event.target)) {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+      if (modelMenuOpen && !modelMenuRef.current?.contains(event.target)) {
         setModelMenuOpen(false);
+      }
+      if (permissionMenuOpen && !permissionMenuRef.current?.contains(event.target)) {
+        setPermissionMenuOpen(false);
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setModelMenuOpen(false);
+        setPermissionMenuOpen(false);
       }
     };
 
@@ -175,7 +189,7 @@ export default function ManagerPage({
       document.removeEventListener("pointerdown", closeOnOutsidePointer);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [modelMenuOpen]);
+  }, [modelMenuOpen, permissionMenuOpen]);
   useEffect(() => {
     if (!sendingOfficeMessage) {
       setOfficeElapsedMs(1000);
@@ -307,6 +321,21 @@ export default function ManagerPage({
       setNetworkMessage(error instanceof Error ? error.message : "检查公告失败。");
     } finally {
       setCheckingNetwork(false);
+    }
+  }
+
+  async function checkCapabilities() {
+    setCheckingCapabilities(true);
+    setTestMessage(undefined);
+    try {
+      await onSave(ensureProjects(ensureModelProfiles(settings)));
+      const result = await window.petApp.checkCapabilities();
+      setCapabilityResult(result);
+      setTestMessage(summarizeCapabilities(result.rows));
+    } catch (error) {
+      setTestMessage(error instanceof Error ? error.message : "能力体检失败");
+    } finally {
+      setCheckingCapabilities(false);
     }
   }
 
@@ -541,6 +570,27 @@ export default function ManagerPage({
     requestAnimationFrame(() => officeDraftInputRef.current?.focus());
   }
 
+  async function openOutputFile(path: string) {
+    try {
+      await window.petApp.openOutputFile(path);
+    } catch (error) {
+      setTestMessage(`无法打开文件：${readUnknownError(error)}`);
+    }
+  }
+
+  async function showOutputFile(path: string) {
+    try {
+      await window.petApp.showOutputFile(path);
+    } catch (error) {
+      setTestMessage(`无法定位文件：${readUnknownError(error)}`);
+    }
+  }
+
+  async function copyOutputPath(path: string) {
+    await writeClipboard(path);
+    setTestMessage("已复制路径");
+  }
+
   function renderConversationRow(conversation: PetConversation) {
     return (
       <div
@@ -599,17 +649,63 @@ export default function ManagerPage({
     if ((!content && pendingOfficeAttachments.length === 0) || sendingOfficeMessage) {
       return;
     }
-    const message = pendingOfficeAttachments.length > 0
+    const hasAttachments = pendingOfficeAttachments.length > 0;
+    const message = hasAttachments
       ? buildAttachmentMessage(content, pendingOfficeAttachments)
       : { role: "user" as const, content };
+    await sendPreparedOfficeMessage(message, undefined, hasAttachments);
+  }
+
+  async function sendPreparedOfficeMessage(message: ChatMessage, modelIdOverride?: string, forceTaskCard = false) {
+    if (sendingOfficeMessage) {
+      return;
+    }
+    const taskInput = message.displayContent ?? message.content;
     setOfficeDraft("");
     setPendingOfficeAttachments([]);
+    setOfficeTask((current) => startOfficeTask(current, { input: taskInput, hasAttachment: forceTaskCard }));
     setSendingOfficeMessage(true);
+    setLastFailedOfficeMessage(undefined);
+    officeCancelRequestedRef.current = false;
     try {
-      await onSendOfficeMessage(message);
+      await onSendOfficeMessage(message, modelIdOverride);
+      if (officeCancelRequestedRef.current) {
+        setOfficeTask((current) => cancelOfficeTask(current));
+      } else {
+        setOfficeTask((current) => completeOfficeTask(current));
+      }
+    } catch (error) {
+      if (officeCancelRequestedRef.current || isCancelledOfficeError(error)) {
+        setOfficeTask((current) => cancelOfficeTask(current));
+        return;
+      }
+      setLastFailedOfficeMessage(message);
+      setOfficeTask((current) => failOfficeTask(current, readUnknownError(error)));
     } finally {
       setSendingOfficeMessage(false);
     }
+  }
+
+  async function retryOfficeMessage(modelIdOverride?: string) {
+    if (!lastFailedOfficeMessage || sendingOfficeMessage) {
+      return;
+    }
+    await sendPreparedOfficeMessage(lastFailedOfficeMessage, modelIdOverride);
+  }
+
+  async function cancelOfficeMessage() {
+    officeCancelRequestedRef.current = true;
+    setOfficeTask((current) => cancelOfficeTask(current));
+    await onCancelMessage();
+  }
+
+  function isCancelledOfficeError(error: unknown) {
+    const message = readUnknownError(error);
+    return /已停止|cancel|abort/i.test(message);
+  }
+
+  function readUnknownError(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
   }
 
   async function sendOfficeFile(event: ChangeEvent<HTMLInputElement>) {
@@ -673,6 +769,13 @@ export default function ManagerPage({
   const openAiCompatibleModels = settings.models.filter((model) => model.provider === "openai-compatible");
   const claudeAgentModels = settings.models.filter((model) => model.provider === "claude-agent");
   const selectedModel = settings.models.find((model) => model.id === selectedModelId) ?? settings.models[0];
+  const activeOfficeTask = officeTask.activeTaskCard;
+  const officeTaskStatus = officeTask.status;
+  const activeOfficeTaskElapsedMs = activeOfficeTask
+    ? activeOfficeTask.phase === "processing" || activeOfficeTask.phase === "starting"
+      ? officeElapsedMs
+      : (activeOfficeTask.finishedAt ?? Date.now()) - activeOfficeTask.startedAt
+    : 0;
 
   useEffect(() => {
     if (section !== "office") {
@@ -688,104 +791,46 @@ export default function ManagerPage({
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [section, activeConversation?.id, messages.length, messages.at(-1)?.content, sendingOfficeMessage, chatError]);
+  }, [section, activeConversation?.id, messages.length, messages.at(-1)?.content, sendingOfficeMessage, chatError, activeOfficeTask?.phase]);
+
+  useEffect(() => {
+    if (section !== "office" || !activeProject?.id || messages.length > 0) {
+      setProjectMemorySuggestion(undefined);
+      return;
+    }
+    let cancelled = false;
+    void window.petApp.getProjectMemory(activeProject.id)
+      .then((memory) => {
+        if (!cancelled) {
+          setProjectMemorySuggestion(buildProjectMemorySuggestion(memory));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProjectMemorySuggestion(undefined);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [section, activeProject?.id, messages.length]);
 
   return (
     <main className="manager-app-shell">
-      <aside className="codex-sidebar">
-        <section className="codex-sidebar-section">
-          <div className="codex-sidebar-heading">
-            <p className="codex-sidebar-label">项目</p>
-            <button title="选择新项目" onClick={() => void chooseWorkspace()}>
-              <Plus size={14} />
-            </button>
-          </div>
-          <div className="codex-project-list">
-            {settings.projects.length === 0 && (
-              <div className="codex-project-item active">
-                <div className="codex-project-header">
-                  <button className="codex-project-toggle" title="展开会话" onClick={() => undefined}>
-                    <ChevronDown size={14} />
-                  </button>
-                  <button className="codex-project-row active" onClick={() => void chooseWorkspace()}>
-                    <FolderOpen size={15} />
-                    <span>{projectName}</span>
-                  </button>
-                  <button className="codex-project-new-conversation" title="新建会话" onClick={() => void onCreateConversation("chat")}>
-                    <Plus size={13} />
-                  </button>
-                </div>
-                <div className="codex-project-conversations">
-                  {visibleConversations.map(renderConversationRow)}
-                </div>
-              </div>
-            )}
-            {settings.projects.map((project) => {
-              const projectConversations = settings.conversations.filter(
-                (conversation) => (conversation.projectId || "") === project.id
-              );
-              const expanded = !collapsedProjectIds.includes(project.id);
-              const active = project.id === settings.activeProjectId;
-              return (
-                <div className={active ? "codex-project-item active" : "codex-project-item"} key={project.id}>
-                  <div className="codex-project-header">
-                    <button
-                      className="codex-project-toggle"
-                      title={expanded ? "收起会话" : "展开会话"}
-                      onClick={() => toggleProjectCollapsed(project.id)}
-                    >
-                      {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    </button>
-                    <button className="codex-project-row" onClick={() => void switchProjectFromRail(project.id)}>
-                      <FolderOpen size={15} />
-                      <span>{project.name}</span>
-                    </button>
-                    {active && (
-                      <button
-                        className="codex-project-new-conversation"
-                        title="新建会话"
-                        onClick={() => void onCreateConversation("chat")}
-                      >
-                        <Plus size={13} />
-                      </button>
-                    )}
-                    <button
-                      className="codex-project-delete"
-                      disabled={settings.projects.length <= 1}
-                      title="移除项目"
-                      onClick={() => void onDeleteProject(project.id)}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                  {expanded && (
-                    <div className="codex-project-conversations">
-                      {projectConversations.map(renderConversationRow)}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <p className="codex-project-path">{activeProject?.path || settings.agent.workspaceDir || "暂无项目"}</p>
-        </section>
-
-        <nav className="codex-sidebar-nav" aria-label="管理">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                className={section === item.id ? "active" : ""}
-                key={item.id}
-                onClick={() => setSection(item.id)}
-              >
-                <Icon size={15} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
+      <ManagerSidebar
+        settings={settings}
+        section={section}
+        projectName={projectName}
+        visibleConversations={visibleConversations}
+        collapsedProjectIds={collapsedProjectIds}
+        renderConversationRow={renderConversationRow}
+        onChooseWorkspace={chooseWorkspace}
+        onCreateConversation={onCreateConversation}
+        onSwitchProject={switchProjectFromRail}
+        onDeleteProject={onDeleteProject}
+        onToggleProjectCollapsed={toggleProjectCollapsed}
+        onSectionChange={setSection}
+      />
 
       {section === "office" && (
         <section
@@ -798,11 +843,36 @@ export default function ManagerPage({
             {messages.length === 0 && (
               <div className="codex-empty-state">
                 <Bot size={40} />
-                <p>{activeAgentModel?.provider === "claude-agent" ? "让哈基Mi处理当前项目里的事。" : "和哈基Mi聊聊当前项目。"}</p>
+                <p>让哈基Mi处理当前项目里的事。</p>
+                <div className="codex-empty-actions">
+                  {projectMemorySuggestion && (
+                    <button type="button" className="memory-suggestion" onClick={() => setOfficeDraft(projectMemorySuggestion.prompt)}>
+                      {projectMemorySuggestion.label}
+                    </button>
+                  )}
+                  {["读取 README", "整理当前目录", "检查最近文件"].map((prompt) => (
+                    <button type="button" key={prompt} onClick={() => setOfficeDraft(prompt)}>
+                      {prompt}
+                    </button>
+                  ))}
+                  <button type="button" disabled={checkingCapabilities} onClick={() => void checkCapabilities()}>
+                    {checkingCapabilities ? "检查中..." : "检查能力"}
+                  </button>
+                </div>
               </div>
             )}
-            {messages.map((message, index) => (
-              <article className={message.role === "user" ? "codex-message user" : "codex-message assistant"} key={index}>
+            {messages.map((message, index) => {
+              const isLatestMessage = index === messages.length - 1;
+              return (
+                <div
+                  className={[
+                    "codex-message-frame",
+                    message.role === "user" ? "user" : "assistant",
+                    isLatestMessage ? "latest" : ""
+                  ].filter(Boolean).join(" ")}
+                  key={index}
+                >
+                  <article className={message.role === "user" ? "codex-message user" : "codex-message assistant"}>
                 {message.role === "assistant" && message.durationMs !== undefined && (
                   <span className="codex-message-meta">{formatProcessingTime(message.durationMs)}</span>
                 )}
@@ -810,32 +880,106 @@ export default function ManagerPage({
                 {message.fileOutputs?.length ? (
                   <div className="composer-output-files">
                     {message.fileOutputs.map((file) => (
-                      <span className="composer-output-file" key={`${file.path}-${file.size ?? 0}`}>
+                      <span className="composer-output-file" key={`${file.path}-${file.size ?? 0}`} title={file.path}>
                         <Paperclip size={12} />
                         <span>{file.name || file.path}</span>
+                        <span className="output-file-actions">
+                          <button type="button" title="打开文件" aria-label={`打开文件 ${file.name || file.path}`} onClick={() => void openOutputFile(file.path)}>
+                            <Download size={12} />
+                          </button>
+                          <button type="button" title="打开所在文件夹" aria-label={`打开所在文件夹 ${file.name || file.path}`} onClick={() => void showOutputFile(file.path)}>
+                            <FolderOpen size={12} />
+                          </button>
+                          <button type="button" title="复制路径" aria-label={`复制路径 ${file.name || file.path}`} onClick={() => void copyOutputPath(file.path)}>
+                            <Copy size={12} />
+                          </button>
+                        </span>
                       </span>
                     ))}
                   </div>
                 ) : null}
-                <div className="message-action-row">
-                  <button type="button" title="复制" onClick={() => void copyOfficeMessage(message)}>
+                  </article>
+                  <div className="message-action-row">
+                  <button type="button" title="复制" aria-label="复制消息" onClick={() => void copyOfficeMessage(message)}>
                     <Copy size={13} />
                   </button>
-                  <button type="button" title="编辑" onClick={() => editOfficeMessage(message)}>
+                  <button type="button" title="编辑" aria-label="编辑消息" onClick={() => editOfficeMessage(message)}>
                     <Pencil size={13} />
                   </button>
+                  </div>
                 </div>
+              );
+            })}
+            {activeOfficeTask && (
+              <article className={`codex-message assistant task-card phase-${activeOfficeTask.phase}`}>
+                <div className="task-card-header">
+                  <div>
+                    <span className="codex-message-meta task-status-meta">
+                      <span className="task-status-dot" />
+                      {formatTaskStatus(activeOfficeTask.phase)} {formatTaskElapsed(activeOfficeTaskElapsedMs)}
+                    </span>
+                    <strong>{activeOfficeTask.title}</strong>
+                  </div>
+                  {sendingOfficeMessage && (
+                    <button type="button" className="task-card-action" onClick={() => void cancelOfficeMessage()}>
+                      停止
+                    </button>
+                  )}
+                </div>
+                <ol className="task-plan-list">
+                  {activeOfficeTask.plan.map((step, index) => (
+                    <li key={`${activeOfficeTask.id}-${step}`}>
+                      <span>{index + 1}</span>
+                      <p>{step}</p>
+                    </li>
+                  ))}
+                </ol>
+                {activeOfficeTask.error && <p className="task-card-error">{activeOfficeTask.error}</p>}
+                {activeOfficeTask.phase === "failed" && lastFailedOfficeMessage && (
+                  <div className="task-card-actions">
+                    <button type="button" className="message-retry-button" onClick={() => void retryOfficeMessage()}>
+                      重试
+                    </button>
+                    {activeAgentModel?.provider !== "claude-agent" && claudeAgentModels.length > 0 && (
+                      <button
+                        type="button"
+                        className="message-retry-button"
+                        onClick={() => {
+                          const targetModelId = claudeAgentModels[0].id;
+                          void updateAgentModel(targetModelId).then(() => retryOfficeMessage(targetModelId));
+                        }}
+                      >
+                        换高级模型重试
+                      </button>
+                    )}
+                  </div>
+                )}
               </article>
-            ))}
-            {sendingOfficeMessage && (
-              <article className="codex-message assistant">
-                <span className="codex-message-meta">{formatProcessingTime(officeElapsedMs)}</span>
+            )}
+            {!activeOfficeTask && sendingOfficeMessage && (
+              <article className="codex-message assistant task-status-message">
+                <span className="codex-message-meta task-status-meta">
+                  <span className="task-status-dot" />
+                  处理中 {formatElapsedTime(officeElapsedMs)}
+                </span>
                 <p>收到，正在处理...</p>
               </article>
             )}
-            {chatError && (
-              <article className="codex-message error">
+            {!activeOfficeTask && officeTaskStatus === "cancelled" && !sendingOfficeMessage && (
+              <article className="codex-message assistant task-status-message">
+                <span className="codex-message-meta">已取消</span>
+                <p>已停止生成，可以调整要求后继续。</p>
+              </article>
+            )}
+            {!activeOfficeTask && chatError && (
+              <article className="codex-message error task-status-message">
+                <span className="codex-message-meta">失败</span>
                 <p>{chatError}</p>
+                {lastFailedOfficeMessage && (
+                  <button type="button" className="message-retry-button" onClick={() => void retryOfficeMessage()}>
+                    重试
+                  </button>
+                )}
               </article>
             )}
           </div>
@@ -850,7 +994,7 @@ export default function ManagerPage({
                   <span className="composer-attachment" key={attachment.id}>
                     <Paperclip size={12} />
                     <span>{attachment.name}</span>
-                    <button type="button" title="移除附件" onClick={() => removeOfficeAttachment(attachment.id)}>
+                    <button type="button" title="移除附件" aria-label={`移除附件 ${attachment.name}`} onClick={() => removeOfficeAttachment(attachment.id)}>
                       <X size={11} />
                     </button>
                   </span>
@@ -861,7 +1005,7 @@ export default function ManagerPage({
               ref={officeDraftInputRef}
               value={officeDraft}
               disabled={sendingOfficeMessage}
-              placeholder={sendingOfficeMessage ? "发送中..." : activeAgentModel?.provider === "claude-agent" ? "要求后续变更" : "和哈基Mi聊聊当前项目"}
+              placeholder={sendingOfficeMessage ? "发送中..." : "要求后续变更"}
               onChange={(event) => setOfficeDraft(event.target.value)}
             />
             <div className="codex-composer-toolbar">
@@ -875,16 +1019,38 @@ export default function ManagerPage({
               <button type="button" title="发送文件" onClick={() => officeFileInputRef.current?.click()}>
                 <Paperclip size={17} />
               </button>
-              <select
-                className="composer-permission-select"
-                value={settings.agent.permissionMode}
-                title={activePermission.description}
-                onChange={(event) => void updatePermissionMode(event.target.value as AgentPermissionMode)}
-              >
-                {permissionOptions.map((option) => (
-                  <option key={option.id} value={option.id}>{option.label}</option>
-                ))}
-              </select>
+              <div className="composer-permission-picker" ref={permissionMenuRef}>
+                <button
+                  className="composer-permission-button"
+                  type="button"
+                  title={activePermission.description}
+                  aria-label={`权限：${activePermission.label}`}
+                  aria-expanded={permissionMenuOpen}
+                  onClick={() => setPermissionMenuOpen((open) => !open)}
+                >
+                  <span>{activePermission.label}</span>
+                  <ChevronDown size={13} />
+                </button>
+                {permissionMenuOpen && (
+                  <div className="composer-permission-menu">
+                    {permissionOptions.map((option) => (
+                      <button
+                        className={option.id === settings.agent.permissionMode ? "active" : ""}
+                        key={option.id}
+                        type="button"
+                        title={option.description}
+                        onClick={() => {
+                          setPermissionMenuOpen(false);
+                          void updatePermissionMode(option.id);
+                        }}
+                      >
+                        <span>{option.label}</span>
+                        {option.id === settings.agent.permissionMode && <Check size={13} />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="composer-model-picker" ref={modelMenuRef}>
                 <button
                   className="composer-model-select"
@@ -942,6 +1108,7 @@ export default function ManagerPage({
               <button
                 type="button"
                 title="删除当前会话"
+                aria-label="删除当前会话"
                 disabled={settings.conversations.length <= 1 || !activeConversation}
                 onClick={() => activeConversation && void onDeleteConversation(activeConversation.id)}
               >
@@ -950,9 +1117,10 @@ export default function ManagerPage({
               <button
                 className={sendingOfficeMessage ? "codex-send-button stop" : "codex-send-button"}
                 title={sendingOfficeMessage ? "停止生成" : "发送"}
+                aria-label={sendingOfficeMessage ? "停止生成" : "发送消息"}
                 type={sendingOfficeMessage ? "button" : "submit"}
                 disabled={!sendingOfficeMessage && !officeDraft.trim() && pendingOfficeAttachments.length === 0}
-                onClick={sendingOfficeMessage ? () => void onCancelMessage() : undefined}
+                onClick={sendingOfficeMessage ? () => void cancelOfficeMessage() : undefined}
               >
                 {sendingOfficeMessage ? <Square size={13} /> : <Send size={17} />}
               </button>
@@ -1197,7 +1365,7 @@ export default function ManagerPage({
             <div>
               <p className="eyebrow">哈基Mi</p>
               <h1>通道</h1>
-              <p>把飞书和微信消息接入哈基Mi，远程聊天也能进入当前办公能力。</p>
+              <p>把飞书和微信消息接入哈基Mi，远程消息会进入当前办公会话。</p>
             </div>
           </header>
           <div className="channel-grid">
@@ -1215,16 +1383,10 @@ export default function ManagerPage({
                     onChange={(event) => void updateChannel(channel.provider, { enabled: event.target.checked })}
                   />
                 </label>
-                <label>
-                  默认路由
-                  <select
-                    value={channel.routeMode}
-                    onChange={(event) => void updateChannel(channel.provider, { routeMode: event.target.value as ChannelSettings["routeMode"] })}
-                  >
-                    <option value="chat">聊天</option>
-                    <option value="agent">办公区</option>
-                  </select>
-                </label>
+                <div className="channel-route-summary">
+                  <span>默认接入</span>
+                  <strong>当前办公会话</strong>
+                </div>
                 <label>
                   访问控制
                   <select
@@ -1335,6 +1497,36 @@ export default function ManagerPage({
             </div>
           </header>
           <div className="manager-grid">
+            <div className="manager-section capability-section">
+              <div className="section-title">
+                <ShieldCheck size={18} />
+                <span>能力体检</span>
+              </div>
+              <p className="manager-note">
+                检查模型、项目读写、普通办公、Claude Code、OpenClaw 和微信通道是否可用。
+              </p>
+              <button className="secondary-command" disabled={checkingCapabilities} onClick={() => void checkCapabilities()}>
+                <RefreshCw size={16} />
+                {checkingCapabilities ? "检查中..." : "检查当前能力"}
+              </button>
+              {capabilityResult && (
+                <div className="capability-result">
+                  <p>{summarizeCapabilities(capabilityResult.rows)}</p>
+                  <div className="capability-rows">
+                    {capabilityResult.rows.map((row) => (
+                      <div className={`capability-row ${row.status}`} key={row.id}>
+                        <span>{capabilityStatusLabel(row.status)}</span>
+                        <div>
+                          <strong>{row.label}</strong>
+                          <small>{row.message}</small>
+                          {row.fix && <small>{row.fix}</small>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="manager-section">
               <div className="section-title">
                 <Sparkles size={18} />
@@ -1480,9 +1672,13 @@ async function writeClipboard(text: string) {
 }
 
 function formatProcessingTime(durationMs: number): string {
+  return `已处理 ${formatElapsedTime(durationMs)}`;
+}
+
+function formatElapsedTime(durationMs: number): string {
   const seconds = Math.max(1, Math.round(durationMs / 1000));
   if (seconds < 60) {
-    return `已处理 ${seconds}s`;
+    return `${seconds}s`;
   }
-  return `已处理 ${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }

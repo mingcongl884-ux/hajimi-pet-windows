@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { ChatMessage } from "./chatClient.js";
 import type { AppSettings, ModelProfile } from "./settingsStore.js";
 import type { ChannelProvider } from "../src/lib/channels.js";
+import type { CapabilityCheckResult } from "../src/lib/capabilityCheck.js";
+import type { ProjectMemory, ProjectMemoryUpdate } from "../src/lib/projectMemory.js";
 import type { PetAppState, PetWindowBounds } from "../src/global.js";
 import type { PetMoveCommand } from "../src/lib/petMotion.js";
 import type { PetPlayCommand } from "../src/lib/petPlay.js";
@@ -24,14 +26,20 @@ contextBridge.exposeInMainWorld("petApp", {
   cancelChatTask: (requestId: string) => ipcRenderer.invoke("pet:cancel-chat-task", requestId),
   heartbeatGreeting: (prompt: string) => ipcRenderer.invoke("pet:heartbeat-greeting", prompt),
   testModel: (model: ModelProfile) => ipcRenderer.invoke("pet:test-model", model),
+  checkCapabilities: (): Promise<CapabilityCheckResult> => ipcRenderer.invoke("pet:check-capabilities"),
   checkUpdates: () => ipcRenderer.invoke("pet:check-updates"),
   downloadUpdate: () => ipcRenderer.invoke("pet:download-update"),
   installUpdate: () => ipcRenderer.invoke("pet:install-update"),
   checkNotices: () => ipcRenderer.invoke("pet:check-notices"),
   markNoticeRead: (noticeId: string) => ipcRenderer.invoke("pet:mark-notice-read", noticeId),
+  openManager: () => ipcRenderer.invoke("pet:open-manager"),
   chooseWorkspace: () => ipcRenderer.invoke("pet:choose-workspace"),
   switchProject: (projectId: string) => ipcRenderer.invoke("pet:switch-project", projectId),
   deleteProject: (projectId: string) => ipcRenderer.invoke("pet:delete-project", projectId),
+  getProjectMemory: (projectId: string): Promise<ProjectMemory | undefined> => ipcRenderer.invoke("pet:get-project-memory", projectId),
+  updateProjectMemory: (update: ProjectMemoryUpdate): Promise<ProjectMemory> => ipcRenderer.invoke("pet:update-project-memory", update),
+  openOutputFile: (path: string) => ipcRenderer.invoke("pet:open-output-file", path),
+  showOutputFile: (path: string) => ipcRenderer.invoke("pet:show-output-file", path),
   setPetWindowBounds: (bounds: PetWindowBounds) => ipcRenderer.invoke("pet:set-window-bounds", petSlot, bounds),
   getPetWindowBounds: () => ipcRenderer.invoke("pet:get-window-bounds", petSlot),
   movePetTo: (command: PetMoveCommand) => ipcRenderer.invoke("pet:move-pet-to", petSlot, command),

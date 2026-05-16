@@ -43,8 +43,9 @@ describe("pet interaction source", () => {
     expect(runtimeEffectsSource).toMatch(/window\.setTimeout\(\(\) => runtimeRef\.current\.setBubble\(undefined\), BUBBLE_AUTO_HIDE_MS\)/);
   });
 
-  it("never renders a reminder bubble at the same time as the chat panel", () => {
-    expect(appSource).toContain("{bubble && !chatOpen && (");
+  it("renders reminder bubbles without a separate pet chat panel", () => {
+    expect(appSource).toContain("{bubble && (");
+    expect(appSource).not.toContain("<ChatPanel");
   });
 
   it("keeps transparent pet-window areas click-through", () => {
@@ -64,15 +65,19 @@ describe("pet interaction source", () => {
     expect(globalSource).toContain("movePetTo");
     expect(appSource).toContain("syncMousePassthrough");
     expect(appSource).toContain("buildPetMoveCommand");
-    expect(appSource).toContain(".pet-canvas, .pet-bubble, .chat-panel");
+    expect(appSource).toContain(".pet-canvas, .pet-bubble");
+    expect(appSource).not.toContain(".pet-canvas, .pet-bubble, .chat-panel");
     expect(appSource).not.toContain(".pet-hover-actions");
   });
 
-  it("places the chat panel close to the pet instead of the far left edge", () => {
-    expect(stylesSource).toMatch(/\.chat-panel\s*\{[\s\S]*left: 108px/);
-    expect(stylesSource).toMatch(/\.chat-panel\s*\{[\s\S]*top: 92px/);
-    expect(stylesSource).toMatch(/\.chat-panel\s*\{[\s\S]*width: 344px/);
-    expect(stylesSource).toMatch(/\.chat-panel\s*\{[\s\S]*min-height: 338px/);
+  it("uses the pet as a launcher for the office chat bubble", () => {
+    expect(appSource).toContain("function openPetChat");
+    expect(appSource).toContain("setChatOpen(true)");
+    expect(appSource).toContain("onClick={openPetChat}");
+    expect(appSource).toContain("PetChatBubble");
+    expect(appSource).not.toContain("onClick={openOffice}");
+    expect(preloadSource).toContain("openManager");
+    expect(globalSource).toContain("openManager(): Promise<void>");
   });
 
   it("releases transient chat status so model-controlled movement can animate", () => {

@@ -24,7 +24,7 @@ export function ensureActiveConversation(settings: AppSettings, now = new Date()
       {
         id: defaultConversationId(projectId),
         title: "新会话",
-        mode: "chat",
+        mode: "agent",
         projectId: projectId || undefined,
         messages: [],
         updatedAt: now

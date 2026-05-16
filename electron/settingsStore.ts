@@ -185,7 +185,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     {
       id: "default",
       title: "新会话",
-      mode: "chat",
+      mode: "agent",
       messages: [],
       updatedAt: ""
     }

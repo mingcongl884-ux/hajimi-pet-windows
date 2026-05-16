@@ -9,21 +9,20 @@ import {
   protocol,
   safeStorage,
   screen,
+  shell,
   Tray
 } from "electron";
 import type { OpenDialogOptions } from "electron";
 import { appendFile, cp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { freemem, totalmem } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runAgentTask as runLegacyAgentTask } from "./agentClient.js";
+import { checkCapabilities } from "./capabilityCheck.js";
 import { handleInboundChannelMessage } from "./channelBridge.js";
-import { startChannelAdapter, stopChannelAdapter, testChannelAdapter } from "./channelAdapters.js";
+import { restoreChannelAdapter, startChannelAdapter, stopChannelAdapter, testChannelAdapter } from "./channelAdapters.js";
 import type { ChannelProvider } from "../src/lib/channels.js";
 import type { ChannelMessage } from "../src/lib/channelRouter.js";
-import { runClaudeAgentTask, testClaudeAgentModel } from "./claudeAgentClient.js";
-import { sendChatMessage, type ChatMessage } from "./chatClient.js";
-import { runOpenClawAgentTask } from "./openClawAgentClient.js";
+import type { ChatMessage } from "./chatClient.js";
 import type { PetAction } from "../src/lib/petActions.js";
 import {
   checkForAppUpdates,
@@ -42,15 +41,19 @@ import type { InstalledPet, PetManifest } from "../src/lib/petTypes.js";
 import { PET_WINDOW_SIZE, clampPetWindowPosition, getPetVisibleRect } from "../src/lib/petWindowGeometry.js";
 import { removeProject, switchProject, upsertProject } from "../src/lib/projects.js";
 import { startWeixinMessageBridge, type WeixinMessageBridgeStop, type WeixinMessageReply } from "./weixinMessageBridge.js";
+import { ProjectMemoryStore } from "./projectMemoryStore.js";
+import type { ProjectMemoryUpdate } from "../src/lib/projectMemory.js";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
 const PET_ASSET_PROTOCOL = "pet-asset";
+const ENABLED_CHANNEL_RESTORE_DELAY_MS = 3_000;
 
 const petWindows = new Map<number, BrowserWindow>();
 const petChatOpen = new Map<number, boolean>();
 let managerWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let settingsStore: SettingsStore;
+let projectMemoryStore: ProjectMemoryStore | undefined;
 const lastPositionSaveBySlot = new Map<number, number>();
 let isQuitting = false;
 let petPlayInterval: NodeJS.Timeout | undefined;
@@ -102,6 +105,7 @@ async function createWindows() {
   Menu.setApplicationMenu(null);
   app.setAppUserModelId("com.codex.xiaomipet");
   settingsStore = new SettingsStore(app.getPath("userData"), safeStorage);
+  projectMemoryStore = new ProjectMemoryStore(app.getPath("userData"));
   await ensureBundledPet();
   registerPetAssetProtocol();
   const settings = await settingsStore.loadSettings();
@@ -110,7 +114,7 @@ async function createWindows() {
   await createManagerWindow();
   createTray();
   startPetPlayLoop();
-  syncChannelBridges(settings);
+  scheduleEnabledChannelRestore(settings);
   void refreshKeyboardControlShortcuts(settings);
 }
 
@@ -299,7 +303,7 @@ function registerIpc() {
     const result = await startChannelAdapter(channel);
     const nextSettings = updateChannelStatus(settings, provider, result.status, true);
     await settingsStore.saveSettings(nextSettings);
-    syncChannelBridges(nextSettings);
+    syncChannelBridges(nextSettings, { allowStarting: true });
     await broadcastState();
     return result;
   });
@@ -323,7 +327,9 @@ function registerIpc() {
       throw new Error("通道不存在。");
     }
     const result = await testChannelAdapter(channel);
-    await settingsStore.saveSettings(updateChannelStatus(settings, provider, result.status));
+    const nextSettings = updateChannelStatus(settings, provider, result.status);
+    await settingsStore.saveSettings(nextSettings);
+    syncChannelBridges(nextSettings);
     await broadcastState();
     return result;
   });
@@ -340,7 +346,7 @@ function registerIpc() {
     const task = createCancellableChatTask(requestId);
     const settings = await settingsStore.loadSettings();
     try {
-      return await sendChatMessage(task.fetchImpl, getModelSettingsById(settings, modelId, "chat"), messages);
+      return await sendModelChat(task.fetchImpl, getModelSettingsById(settings, modelId, "chat"), messages);
     } finally {
       task.finish();
     }
@@ -351,7 +357,7 @@ function registerIpc() {
     const model = getModelSettingsById(settings, modelId, "agent");
     try {
       return await (model.provider === "claude-agent"
-        ? runClaudeAgentTask(model, settings.agent, taskPrompt, task.controller)
+        ? runClaudeOfficeTask(model, settings.agent, taskPrompt, task.controller)
         : runOrdinaryOfficeTask(task.fetchImpl, model, settings.agent, taskPrompt, task.controller));
     } finally {
       task.finish();
@@ -359,14 +365,18 @@ function registerIpc() {
   });
   ipcMain.handle("pet:heartbeat-greeting", async (_event, prompt: string) => {
     const settings = await settingsStore.loadSettings();
-    return sendChatMessage(fetch, getActiveModelSettings(settings, "chat"), [{ role: "user", content: prompt }]);
+    return sendModelChat(fetch, getActiveModelSettings(settings, "chat"), [{ role: "user", content: prompt }]);
   });
   ipcMain.handle("pet:test-model", async (_event, model: ModelProfile) => {
     if (model.provider === "claude-agent") {
-      return testClaudeAgentModel(model);
+      return testClaudeModel(model);
     }
-    const response = await sendChatMessage(fetch, model, [{ role: "user", content: "Reply with OK." }]);
+    const response = await sendModelChat(fetch, model, [{ role: "user", content: "Reply with OK." }]);
     return response.content;
+  });
+  ipcMain.handle("pet:check-capabilities", async () => {
+    const settings = await settingsStore.loadSettings();
+    return checkCapabilities(settings);
   });
   ipcMain.handle("pet:check-updates", async () => {
     const settings = await settingsStore.loadSettings();
@@ -402,6 +412,9 @@ function registerIpc() {
     await settingsStore.saveSettings(markNoticeRead(settings, noticeId));
     return broadcastState();
   });
+  ipcMain.handle("pet:open-manager", async () => {
+    await createManagerWindow();
+  });
   ipcMain.handle("pet:choose-workspace", () => chooseWorkspaceFromDialog());
   ipcMain.handle("pet:switch-project", async (_event, projectId: string) => {
     const settings = await settingsStore.loadSettings();
@@ -412,6 +425,22 @@ function registerIpc() {
     const settings = await settingsStore.loadSettings();
     await settingsStore.saveSettings(removeProject(settings, projectId));
     return broadcastState();
+  });
+  ipcMain.handle("pet:get-project-memory", async (_event, projectId: string) =>
+    getProjectMemoryStore().getMemory(projectId)
+  );
+  ipcMain.handle("pet:update-project-memory", async (_event, update: ProjectMemoryUpdate) =>
+    getProjectMemoryStore().updateMemory(update)
+  );
+  ipcMain.handle("pet:open-output-file", async (_event, filePath: string) => {
+    const resolvedPath = await resolveOutputFilePath(filePath);
+    const errorMessage = await shell.openPath(resolvedPath);
+    if (errorMessage) {
+      throw new Error(errorMessage);
+    }
+  });
+  ipcMain.handle("pet:show-output-file", async (_event, filePath: string) => {
+    shell.showItemInFolder(await resolveOutputFilePath(filePath));
   });
   ipcMain.handle("pet:set-window-bounds", async (_event, slot: number, bounds: { x: number; y: number }) => {
     setPetWindowPosition(slot, bounds.x, bounds.y);
@@ -446,6 +475,7 @@ async function runOrdinaryOfficeTask(
   controller?: AbortController
 ) {
   try {
+    const { runOpenClawAgentTask } = await import("./openClawAgentClient.js");
     return await runOpenClawAgentTask(model, agent, taskPrompt, {
       stateDir: join(app.getPath("userData"), "openclaw-office"),
       signal: controller?.signal
@@ -456,8 +486,33 @@ async function runOrdinaryOfficeTask(
       throw error;
     }
     await writeRuntimeLog(`openclaw ordinary office unavailable; falling back to legacy agent: ${message}`);
-    return runLegacyAgentTask(fetchImpl, model, agent, taskPrompt, controller?.signal);
+    const { runAgentTask } = await import("./agentClient.js");
+    return runAgentTask(fetchImpl, model, agent, taskPrompt, controller?.signal);
   }
+}
+
+async function sendModelChat(
+  fetchImpl: (url: string, init: RequestInit) => ReturnType<typeof fetch>,
+  model: ModelProfile,
+  messages: ChatMessage[]
+) {
+  const { sendChatMessage } = await import("./chatClient.js");
+  return sendChatMessage(fetchImpl, model, messages);
+}
+
+async function runClaudeOfficeTask(
+  model: ModelProfile,
+  agent: AppSettings["agent"],
+  taskPrompt: string,
+  controller?: AbortController
+) {
+  const { runClaudeAgentTask } = await import("./claudeAgentClient.js");
+  return runClaudeAgentTask(model, agent, taskPrompt, controller);
+}
+
+async function testClaudeModel(model: ModelProfile) {
+  const { testClaudeAgentModel } = await import("./claudeAgentClient.js");
+  return testClaudeAgentModel(model);
 }
 
 async function deleteImportedPet(petId: string) {
@@ -529,6 +584,35 @@ async function chooseWorkspaceFromDialog() {
   const settings = await settingsStore.loadSettings();
   await settingsStore.saveSettings(upsertProject(settings, result.filePaths[0]));
   return broadcastState();
+}
+
+async function resolveOutputFilePath(filePath: string) {
+  const trimmedPath = typeof filePath === "string" ? filePath.trim() : "";
+  if (!trimmedPath) {
+    throw new Error("Output file path is empty.");
+  }
+  const settings = await settingsStore.loadSettings();
+  const workspaceDir = settings.agent.workspaceDir.trim();
+  const desktopDir = app.getPath("desktop");
+  const baseDir = workspaceDir || desktopDir;
+  const resolvedPath = isAbsolute(trimmedPath) ? resolve(trimmedPath) : resolve(baseDir, trimmedPath);
+  const allowedRoots = [workspaceDir, desktopDir]
+    .filter((root): root is string => Boolean(root))
+    .map((root) => resolve(root));
+  if (!allowedRoots.some((root) => isPathInsideRoot(resolvedPath, root))) {
+    throw new Error("Output file path is outside the current workspace or desktop.");
+  }
+  return resolvedPath;
+}
+
+function isPathInsideRoot(filePath: string, root: string) {
+  const pathRelativeToRoot = relative(root, filePath);
+  return pathRelativeToRoot === "" || (!pathRelativeToRoot.startsWith("..") && !isAbsolute(pathRelativeToRoot));
+}
+
+function getProjectMemoryStore() {
+  projectMemoryStore ??= new ProjectMemoryStore(app.getPath("userData"));
+  return projectMemoryStore;
 }
 
 async function getAppState() {
@@ -613,9 +697,53 @@ function updateChannelStatus(
   };
 }
 
-function syncChannelBridges(settings: AppSettings) {
+function scheduleEnabledChannelRestore(settings: AppSettings) {
+  if (!settings.channels.some((channel) => channel.enabled)) {
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    void restoreEnabledChannels();
+  }, ENABLED_CHANNEL_RESTORE_DELAY_MS);
+  timer.unref?.();
+}
+
+async function restoreEnabledChannels() {
+  try {
+    const settings = await settingsStore.loadSettings();
+    for (const channel of settings.channels.filter((item) => item.enabled)) {
+      const result = await restoreChannelAdapter(channel);
+      const latestSettings = await settingsStore.loadSettings();
+      const latestChannel = latestSettings.channels.find((item) => item.provider === channel.provider);
+      if (!latestChannel?.enabled) {
+        await writeRuntimeLog(`channel ${channel.provider} restore skipped because it was disabled`);
+        continue;
+      }
+
+      const nextSettings = updateChannelStatus(latestSettings, channel.provider, result.status);
+      await settingsStore.saveSettings(nextSettings);
+      await writeRuntimeLog(`channel ${channel.provider} restore ${result.status}: ${result.message}`);
+      if (result.status === "connected") {
+        syncChannelBridges(nextSettings);
+      }
+      await broadcastState();
+    }
+  } catch (error) {
+    await writeRuntimeLog(`channel restore failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+  }
+}
+
+type ChannelBridgeSyncOptions = {
+  allowStarting?: boolean;
+};
+
+function syncChannelBridges(settings: AppSettings, options: ChannelBridgeSyncOptions = {}) {
   const wechatChannel = settings.channels.find((channel) => channel.provider === "wechat");
-  if (wechatChannel?.enabled && !stopWeixinBridge) {
+  const shouldRunWeixinBridge = Boolean(
+    wechatChannel?.enabled &&
+    (wechatChannel.status === "connected" || (options.allowStarting && wechatChannel.status === "starting"))
+  );
+  if (shouldRunWeixinBridge && !stopWeixinBridge) {
     stopWeixinBridge = startWeixinMessageBridge({
       onMessage: (message, reply) => enqueueInboundChannelMessage(message, reply),
       onStatus: (status, message) => {
@@ -628,7 +756,7 @@ function syncChannelBridges(settings: AppSettings) {
     return;
   }
 
-  if (!wechatChannel?.enabled && stopWeixinBridge) {
+  if (!shouldRunWeixinBridge && stopWeixinBridge) {
     stopWeixinBridge();
     stopWeixinBridge = undefined;
   }
@@ -661,9 +789,9 @@ async function processInboundChannelMessage(
       if (!request.settings.agent.workspaceDir.trim()) {
         return { role: "assistant", content: "先在哈基Mi 里选择一个办公区，我才能处理这类办公任务。" };
       }
-      return runClaudeAgentTask(model, request.settings.agent, request.text.trim());
+      return runClaudeOfficeTask(model, request.settings.agent, request.text.trim());
     }
-    return sendChatMessage(fetch, model, request.messages);
+    return sendModelChat(fetch, model, request.messages);
   });
 
   await settingsStore.saveSettings(result.settings);

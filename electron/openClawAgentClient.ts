@@ -378,7 +378,7 @@ function defaultUserDataDir(): string {
   return join(appData, "xiaomi-pet-windows");
 }
 
-function resolveBundledOpenClawCli(): string | undefined {
+export function resolveBundledOpenClawCli(): string | undefined {
   return findFirstExistingPath(resolveBundledNodeModulesRoots().map((root) => join(root, "openclaw", "openclaw.mjs")))
     ?? resolvePackagePath("openclaw/openclaw.mjs");
 }

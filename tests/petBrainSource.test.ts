@@ -11,13 +11,11 @@ describe("pet brain model binding source", () => {
     expect(settingsSource).toContain("petModelBindings");
     expect(managerSource).toContain("pet-model-select");
     expect(managerSource).toContain("updatePetModelBinding");
-    expect(appSource).toContain("currentPetModelId");
-    expect(appSource).toContain('currentPetModel?.provider === "claude-agent"');
+    expect(appSource).not.toContain("currentPetModelId");
+    expect(appSource).not.toContain('currentPetModel?.provider === "claude-agent"');
     expect(appSource).toContain('activeAgentModel?.provider === "claude-agent"');
-    expect(appSource).toContain("sendChat(requestMessages, currentPetModelId, requestId)");
-    expect(appSource).toContain("runAgentTask(content.trim(), currentPetModelId, requestId)");
-    expect(appSource).toContain("sendChat(requestMessages, activeAgentModelId, requestId)");
-    expect(appSource).toContain("runAgentTask(content.trim(), activeAgentModelId, requestId)");
+    expect(appSource).toContain("sendChat(requestMessages, requestModelId, requestId)");
+    expect(appSource).toContain("runAgentTask(content.trim(), requestModelId, requestId)");
     expect(appSource).toContain("setMovement");
     expect(appSource).toContain("movementEnabled");
     expect(appSource).toContain("labelPetResponse");

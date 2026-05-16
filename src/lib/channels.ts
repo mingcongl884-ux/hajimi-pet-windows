@@ -47,7 +47,7 @@ export function defaultChannelSettings(): ChannelSettings[] {
       status: "disabled",
       accessMode: "pairing",
       allowedPeers: [],
-      routeMode: "chat",
+      routeMode: "agent",
       bridgePort: 18011,
       feishu: { appId: "", appSecret: "", connectionMode: "websocket" }
     },
@@ -58,7 +58,7 @@ export function defaultChannelSettings(): ChannelSettings[] {
       status: "disabled",
       accessMode: "pairing",
       allowedPeers: [],
-      routeMode: "chat",
+      routeMode: "agent",
       bridgePort: 18011,
       wechat: {
         bridgeUrl: "http://127.0.0.1:18011",
@@ -75,6 +75,7 @@ export function cloneChannelSettings(channels?: ChannelSettings[]): ChannelSetti
     return {
       ...defaultChannel,
       ...stored,
+      routeMode: stored?.routeMode === "chat" ? "agent" : stored?.routeMode ?? defaultChannel.routeMode,
       allowedPeers: stored?.allowedPeers ? [...stored.allowedPeers] : [],
       feishu: defaultChannel.feishu ? { ...defaultChannel.feishu, ...stored?.feishu } : undefined,
       wechat: defaultChannel.wechat ? { ...defaultChannel.wechat, ...stored?.wechat } : undefined

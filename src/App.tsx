@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import ChatPanel from "./components/ChatPanel";
 import ManagerPage from "./components/ManagerPage";
 import PetBubble from "./components/PetBubble";
+import PetChatBubble from "./components/PetChatBubble";
 import PetStage from "./components/PetStage";
 import {
   appendConversationMessages,
@@ -22,25 +22,27 @@ import type { AnimationState } from "./lib/atlas";
 import type { PetAppState } from "./global";
 import type { PetAction } from "./lib/petActions";
 import { ensureProjects } from "./lib/projects";
-import { getModelSettingsById, getPetModelSettings } from "./lib/modelProfiles";
+import { getModelSettingsById } from "./lib/modelProfiles";
 import { buildPetJumpCommand, buildPetMoveCommand, resolveEdgePosition, resolveVisiblePetPosition, type PetMoveCommand, type PetEdge } from "./lib/petMotion";
 import { intentToAssistantMessage, resolvePetInteractionIntent } from "./lib/petInteractionIntents";
 import { choosePetGreeting } from "./lib/petGreetings";
 import { formatFocusCompanionDoneBubble, resolveFocusCompanionIntent } from "./lib/focusCompanion";
 import { evolvePetMood, moodToAnimation, pickMoodBubble, type PetExperienceMood } from "./lib/petMood";
 import { formatUpdateAnnouncement } from "./lib/updateAnnouncement";
+import { extractMemoryFilesFromDisplay } from "./lib/projectMemory";
 import { usePetRuntimeEffects } from "./hooks/usePetRuntimeEffects";
 import type { AppMode, BubbleState } from "./types/petUi";
 
 export default function App() {
   const mode = readMode();
   const [state, setState] = useState<PetAppState>();
-  const [chatOpen, setChatOpen] = useState(false);
+  const [chatOpen, setChatOpenState] = useState(false);
   const [bubble, setBubble] = useState<BubbleState>();
   const [status, setStatus] = useState<AnimationState>("idle");
   const [error, setError] = useState<string>();
-  const [sendingRequestId, setSendingRequestId] = useState<string>();
+  const [sending, setSending] = useState(false);
   const stateRef = useRef<PetAppState>();
+  const chatOpenRef = useRef(false);
   const busyRef = useRef(false);
   const activeRequestIdRef = useRef<string>();
   const lastInteractionRef = useRef(Date.now());
@@ -53,6 +55,11 @@ export default function App() {
   const petActionStatusTimeoutRef = useRef<number>();
   const focusCompanionTimerRef = useRef<number>();
   const petMoodRef = useRef<PetExperienceMood>("idle");
+
+  function setChatOpen(open: boolean) {
+    chatOpenRef.current = open;
+    setChatOpenState(open);
+  }
 
   useEffect(() => {
     void window.petApp.getInitialState().then((nextState) => {
@@ -100,7 +107,7 @@ export default function App() {
 
     const dismissOnOutsidePointerDown = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : undefined;
-      if (target?.closest(".pet-canvas, .pet-bubble, .chat-panel")) {
+      if (target?.closest(".pet-canvas, .pet-bubble, .pet-chat-bubble")) {
         return;
       }
       dismissFloatingPetUi();
@@ -115,7 +122,7 @@ export default function App() {
       return;
     }
 
-    const interactiveSelector = ".pet-canvas, .pet-bubble, .chat-panel";
+    const interactiveSelector = ".pet-canvas, .pet-bubble, .pet-chat-bubble";
     const syncMousePassthrough = (event: MouseEvent) => {
       cursorPositionRef.current = {
         x: event.screenX,
@@ -152,26 +159,19 @@ export default function App() {
   const activeConversation = state?.settings.conversations.find(
     (conversation) => conversation.id === state.settings.activeConversationId
   );
-  const activeProject = state?.settings.projects.find((project) => project.id === state.settings.activeProjectId);
-  const currentProjectConversations = state?.settings.conversations.filter(
-    (conversation) => (conversation.projectId || "") === (state.settings.activeProjectId || "")
+  const activeProjectId = state?.settings.activeProjectId ?? "";
+  const activeProject = state?.settings.projects.find((project) => project.id === activeProjectId);
+  const activeProjectConversations = state?.settings.conversations.filter(
+    (conversation) => (conversation.projectId || "") === activeProjectId
   ) ?? [];
-  const messages = activeConversation?.messages ?? [];
   const displayName = activePet?.displayName ?? "哈基Mi";
-  const currentPetModel = state && activePet
-    ? getPetModelSettings(state.settings, activePet.id, "chat")
-    : undefined;
-  const currentPetModelId = currentPetModel?.id;
-  const agentMode = currentPetModel?.provider === "claude-agent";
   const activeAgentModelId = state?.settings.activeAgentModelId;
   const activeAgentModel = state ? getModelSettingsById(state.settings, activeAgentModelId, "agent") : undefined;
+  const activeModelLabel = activeAgentModel?.name ?? "默认模型";
+  const petChatBindingLabel = `${activeProject?.name ?? "当前项目"} / ${activeConversation?.title ?? "新会话"} / ${activeModelLabel}`;
   const officeUsesWorkAgent = Boolean(activeAgentModel);
   const officeUsesClaudeCode = activeAgentModel?.provider === "claude-agent";
-  const chatBindingLabel = [
-    activeProject?.name || "当前项目",
-    activeConversation?.title || "新会话",
-    currentPetModel?.name || "默认模型"
-  ].join(" / ");
+  const agentMode = officeUsesClaudeCode;
   const animationOverride = useMemo(() => (status === "idle" ? undefined : status), [status]);
   usePetRuntimeEffects({
     mode,
@@ -314,8 +314,8 @@ export default function App() {
       return;
     }
     activeRequestIdRef.current = undefined;
-    setSendingRequestId(undefined);
     busyRef.current = false;
+    setSending(false);
   }
 
   function isCancelledChatError(errorValue: unknown) {
@@ -323,21 +323,25 @@ export default function App() {
     return /已停止|cancel|abort/i.test(message);
   }
 
-  async function sendMessage(input: string | ChatMessage) {
+  async function sendOfficeMessage(input: string | ChatMessage, modelIdOverride?: string) {
     const userMessage = normalizeUserMessage(input);
     const content = userMessage.content;
     if (!state || !activeConversation || !content.trim()) {
       return;
     }
+    const requestModelId = modelIdOverride ?? activeAgentModelId;
+    const requestModel = getModelSettingsById(state.settings, requestModelId, "agent");
+    const requestUsesWorkAgent = Boolean(requestModel);
     markInteraction();
     const conversationId = activeConversation.id;
-    const modeForRequest: PetConversationMode = agentMode ? "agent" : "chat";
+    const modeForRequest: PetConversationMode = requestUsesWorkAgent ? "agent" : "chat";
     if (await runLocalPetInteraction(content, userMessage, conversationId, modeForRequest)) {
       return;
     }
-    if (agentMode && !state.settings.agent.workspaceDir) {
-      setError("先在管理页或快速设置里选择一个办公区。");
-      return;
+    if (requestUsesWorkAgent && !state.settings.agent.workspaceDir) {
+      const workspaceMessage = "先在管理页或快速设置里选择一个办公区。";
+      setError(workspaceMessage);
+      throw new Error(workspaceMessage);
     }
     const optimisticSettings = appendConversationMessages(
       state.settings,
@@ -346,19 +350,19 @@ export default function App() {
       modeForRequest
     );
     setState({ ...state, settings: optimisticSettings });
-    setStatus(agentMode ? "review" : "waiting");
+    setStatus(requestUsesWorkAgent ? "review" : "waiting");
     setError(undefined);
     const requestId = createChatRequestId();
     activeRequestIdRef.current = requestId;
-    setSendingRequestId(requestId);
     busyRef.current = true;
+    setSending(true);
     const startedAt = Date.now();
 
     try {
       const requestMessages = [...activeConversation.messages, userMessage];
-      const response = agentMode
-        ? await window.petApp.runAgentTask(content.trim(), currentPetModelId, requestId)
-        : await window.petApp.sendChat(requestMessages, currentPetModelId, requestId);
+      const response = requestUsesWorkAgent
+        ? await window.petApp.runAgentTask(content.trim(), requestModelId, requestId)
+        : await window.petApp.sendChat(requestMessages, requestModelId, requestId);
       const responseWithDuration = { ...response, durationMs: Date.now() - startedAt };
       const labelledResponse = labelPetResponse(responseWithDuration, displayName, state.settings.activePetIds.length > 1);
       const responseSettings = appendConversationMessages(
@@ -368,10 +372,21 @@ export default function App() {
         modeForRequest
       );
       await persistSettings(responseSettings);
+      if (state.settings.activeProjectId) {
+        void window.petApp.updateProjectMemory({
+          projectId: state.settings.activeProjectId,
+          task: userMessage.displayContent ?? content.trim(),
+          files: [
+            ...extractMemoryFilesFromDisplay(userMessage.displayContent),
+            ...(labelledResponse.fileOutputs ?? [])
+          ],
+          at: new Date().toISOString()
+        }).catch(() => undefined);
+      }
       busyRef.current = false;
       const petActions = response.petActions ?? [];
       await applyPetActions(petActions, responseSettings);
-      updatePetMood(agentMode ? "taskCompleted" : "userReturned");
+      updatePetMood(requestUsesWorkAgent ? "taskCompleted" : "userReturned");
       if (!petActions.some((action) => action.type === "say")) {
         showBubble(labelledResponse.content, "info");
       }
@@ -386,74 +401,7 @@ export default function App() {
       setTimedPetStatus("failed", 1200);
       setError(readErrorMessage(err));
       showBubble(readErrorMessage(err), "info");
-    } finally {
-      finishChatRequest(requestId);
-    }
-  }
-
-  async function sendOfficeMessage(input: string | ChatMessage) {
-    const userMessage = normalizeUserMessage(input);
-    const content = userMessage.content;
-    if (!state || !activeConversation || !content.trim()) {
-      return;
-    }
-    markInteraction();
-    const conversationId = activeConversation.id;
-    const modeForRequest: PetConversationMode = officeUsesWorkAgent ? "agent" : "chat";
-    if (await runLocalPetInteraction(content, userMessage, conversationId, modeForRequest)) {
-      return;
-    }
-    if (officeUsesWorkAgent && !state.settings.agent.workspaceDir) {
-      setError("先在管理页或快速设置里选择一个办公区。");
-      return;
-    }
-    const optimisticSettings = appendConversationMessages(
-      state.settings,
-      conversationId,
-      [userMessage],
-      modeForRequest
-    );
-    setState({ ...state, settings: optimisticSettings });
-    setStatus(officeUsesWorkAgent ? "review" : "waiting");
-    setError(undefined);
-    const requestId = createChatRequestId();
-    activeRequestIdRef.current = requestId;
-    setSendingRequestId(requestId);
-    busyRef.current = true;
-    const startedAt = Date.now();
-
-    try {
-      const requestMessages = [...activeConversation.messages, userMessage];
-      const response = officeUsesWorkAgent
-        ? await window.petApp.runAgentTask(content.trim(), activeAgentModelId, requestId)
-        : await window.petApp.sendChat(requestMessages, activeAgentModelId, requestId);
-      const responseWithDuration = { ...response, durationMs: Date.now() - startedAt };
-      const labelledResponse = labelPetResponse(responseWithDuration, displayName, state.settings.activePetIds.length > 1);
-      const responseSettings = appendConversationMessages(
-        optimisticSettings,
-        conversationId,
-        [labelledResponse],
-        modeForRequest
-      );
-      await persistSettings(responseSettings);
-      busyRef.current = false;
-      const petActions = response.petActions ?? [];
-      await applyPetActions(petActions, responseSettings);
-      updatePetMood(officeUsesWorkAgent ? "taskCompleted" : "userReturned");
-      if (!petActions.some((action) => action.type === "say")) {
-        showBubble(labelledResponse.content, "info");
-      }
-      if (!petActions.some((action) => action.type === "jump" || action.type === "runAround" || action.type === "mood" || action.type === "moveToEdge" || action.type === "moveTo" || action.type === "setMovement" || action.type === "stopMovement")) {
-        setTimedPetStatus("waving", 900);
-      }
-    } catch (err) {
-      if (isCancelledChatError(err)) {
-        setTimedPetStatus("idle", 0);
-        return;
-      }
-      setTimedPetStatus("failed", 1200);
-      setError(readErrorMessage(err));
-      showBubble(readErrorMessage(err), "info");
+      throw err;
     } finally {
       finishChatRequest(requestId);
     }
@@ -546,7 +494,6 @@ export default function App() {
     markInteraction();
     const nextSettings = createConversation(state.settings, modeForNewConversation);
     await persistSettings(nextSettings);
-    setChatOpen(true);
     setBubble(undefined);
   }
 
@@ -574,7 +521,7 @@ export default function App() {
     await persistSettings(renameConversation(state.settings, conversationId, title));
   }
 
-  function openChat() {
+  function openPetChat() {
     markInteraction();
     setBubble(undefined);
     setChatOpen(true);
@@ -586,6 +533,9 @@ export default function App() {
   }
 
   function showBubble(text: string, tone: BubbleState["tone"], slotId?: GreetingSlotId) {
+    if (chatOpenRef.current) {
+      return;
+    }
     const compact = text.length > 82 ? `${text.slice(0, 82)}...` : text;
     setBubble({ text: compact, tone });
     if (slotId) {
@@ -674,8 +624,7 @@ export default function App() {
         setTimedPetStatus(moodStatus[action.mood], action.mood === "idle" ? 0 : 1200);
       }
       if (action.type === "openChat") {
-        setChatOpen(true);
-        setBubble(undefined);
+        openPetChat();
       }
       if (action.type === "setMovement" && baseSettings) {
         const nextSettings = {
@@ -732,7 +681,6 @@ export default function App() {
         onSwitchConversation={switchConversation}
         onDeleteConversation={removeConversation}
         onRenameConversation={renameConversationTitle}
-        onSendMessage={sendMessage}
         onSendOfficeMessage={sendOfficeMessage}
         onCancelMessage={cancelActiveMessage}
       />
@@ -741,34 +689,30 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      {chatOpen && (
-        <ChatPanel
-          displayName={displayName}
-          conversations={currentProjectConversations}
-          activeConversationId={activeConversation.id}
-          bindingLabel={chatBindingLabel}
-          messages={messages}
-          error={error}
-          agentMode={agentMode}
-          sending={Boolean(sendingRequestId)}
-          onCreateConversation={createNewConversation}
-          onSwitchConversation={switchConversation}
-          onDeleteConversation={removeConversation}
-          onSend={sendMessage}
-          onCancel={cancelActiveMessage}
-          onClose={() => {
-            markInteraction();
-            setChatOpen(false);
-          }}
-        />
-      )}
-
-      {bubble && !chatOpen && (
+      {bubble && (
         <PetBubble
           text={bubble.text}
           tone={bubble.tone}
-          onOpen={openChat}
+          onOpen={openPetChat}
           onClose={() => setBubble(undefined)}
+        />
+      )}
+
+      {chatOpen && (
+        <PetChatBubble
+          displayName={displayName}
+          bindingLabel={petChatBindingLabel}
+          conversations={activeProjectConversations}
+          activeConversationId={activeConversation.id}
+          messages={activeConversation.messages}
+          error={error}
+          sending={sending}
+          onCreateConversation={() => createNewConversation("agent")}
+          onSwitchConversation={switchConversation}
+          onDeleteConversation={removeConversation}
+          onSend={sendOfficeMessage}
+          onCancel={cancelActiveMessage}
+          onClose={() => setChatOpen(false)}
         />
       )}
 
@@ -779,7 +723,7 @@ export default function App() {
         windowBounds={state.windowBounds}
         chatOpen={chatOpen}
         animationOverride={animationOverride}
-        onClick={openChat}
+        onClick={openPetChat}
       />
     </main>
   );

@@ -9,6 +9,24 @@ const preloadSource = readFileSync(join(process.cwd(), "electron", "preload.ts")
 const preloadCjsSource = readFileSync(join(process.cwd(), "electron", "preload.cjs"), "utf8");
 const globalSource = readFileSync(join(process.cwd(), "src", "global.d.ts"), "utf8");
 
+function functionBody(source: string, name: string): string {
+  const start = source.indexOf(`function ${name}`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const openBrace = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = openBrace; index < source.length; index += 1) {
+    if (source[index] === "{") {
+      depth += 1;
+    } else if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(openBrace, index + 1);
+      }
+    }
+  }
+  throw new Error(`Could not read ${name} body.`);
+}
+
 describe("channel adapter source", () => {
   it("has Feishu and WeChat adapter entry points", () => {
     expect(adapterSource).toContain("startChannelAdapter");
@@ -50,6 +68,29 @@ describe("channel adapter source", () => {
     expect(adapterSource).not.toContain("Remove-PathSafely $pluginTarget");
     expect(mainSource).toContain("waitForChannelBridgeShutdown");
     expect(mainSource).toContain("stopWeixinBridge?.()");
+  });
+
+  it("keeps startup channel restore lazy while preserving the manual install path", () => {
+    const restoreBody = functionBody(adapterSource, "restoreChannelAdapter");
+    const createWindowsBody = functionBody(mainSource, "createWindows");
+
+    expect(adapterSource).toContain("restoreChannelAdapter");
+    expect(restoreBody).toContain("hasBundledWeixinAccount()");
+    expect(restoreBody).not.toContain("launchVisiblePowerShell");
+    expect(restoreBody).not.toContain("runOpenClaw");
+    expect(adapterSource).toContain("launchVisiblePowerShell(buildWeixinInstallerCommand(channel)");
+    expect(createWindowsBody).toContain("scheduleEnabledChannelRestore(settings)");
+    expect(createWindowsBody).not.toContain("syncChannelBridges(settings)");
+    expect(createWindowsBody).not.toContain("startChannelAdapter");
+    expect(createWindowsBody).not.toContain("testChannelAdapter");
+    expect(mainSource).toContain("scheduleEnabledChannelRestore(settings)");
+    expect(mainSource).toContain("setTimeout");
+    expect(mainSource).toContain("restoreEnabledChannels");
+    expect(mainSource).toContain("restoreChannelAdapter(channel)");
+    expect(mainSource).toContain("type ChannelBridgeSyncOptions");
+    expect(mainSource).toContain("allowStarting?: boolean");
+    expect(mainSource).toContain("syncChannelBridges(nextSettings, { allowStarting: true })");
+    expect(mainSource).not.toContain("  syncChannelBridges(settings);\n  void refreshKeyboardControlShortcuts(settings);");
   });
 
   it("exposes channel IPC to the renderer", () => {

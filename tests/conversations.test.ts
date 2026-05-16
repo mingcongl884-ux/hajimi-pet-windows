@@ -67,7 +67,7 @@ describe("conversation helpers", () => {
       {
         id: "default",
         title: "新会话",
-        mode: "chat",
+        mode: "agent",
         messages: [],
         updatedAt: "2026-05-08T10:00:00.000Z"
       }
@@ -126,7 +126,7 @@ describe("conversation helpers", () => {
 
   it("keeps at least one conversation after deleting the active one", () => {
     const withDefault = ensureActiveConversation(baseSettings, "2026-05-08T10:00:00.000Z");
-    const withSecond = createConversation(withDefault, "chat", "2026-05-08T10:01:00.000Z", "c-2");
+    const withSecond = createConversation(withDefault, "agent", "2026-05-08T10:01:00.000Z", "c-2");
     const deleted = deleteConversation(withSecond, "c-2", "2026-05-08T10:03:00.000Z");
 
     expect(deleted.activeConversationId).toBe("default");

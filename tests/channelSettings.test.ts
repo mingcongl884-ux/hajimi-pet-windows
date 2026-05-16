@@ -7,7 +7,7 @@ describe("channel settings", () => {
     expect(DEFAULT_SETTINGS.channels.map((channel) => channel.provider)).toEqual(["feishu", "wechat"]);
     expect(DEFAULT_SETTINGS.channels.every((channel) => channel.enabled === false)).toBe(true);
     expect(DEFAULT_SETTINGS.channels.every((channel) => channel.accessMode === "pairing")).toBe(true);
-    expect(DEFAULT_SETTINGS.channels.every((channel) => channel.routeMode === "chat")).toBe(true);
+    expect(DEFAULT_SETTINGS.channels.every((channel) => channel.routeMode === "agent")).toBe(true);
   });
 
   it("finds allowed peers by channel, kind, and id", () => {

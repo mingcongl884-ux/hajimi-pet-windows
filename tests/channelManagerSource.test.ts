@@ -3,12 +3,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const managerSource = readFileSync(join(process.cwd(), "src", "components", "ManagerPage.tsx"), "utf8");
+const sidebarSource = readFileSync(join(process.cwd(), "src", "components", "ManagerSidebar.tsx"), "utf8");
 const appSource = readFileSync(join(process.cwd(), "src", "App.tsx"), "utf8");
 
 describe("channel manager page", () => {
   it("adds a channel page with Feishu and WeChat controls", () => {
-    expect(managerSource).toContain('type ManagerSection = "office" | "pets" | "models" | "channels" | "system"');
-    expect(managerSource).toContain('label: "通道"');
+    expect(sidebarSource).toContain('type ManagerSection = "office" | "pets" | "models" | "channels" | "system"');
+    expect(sidebarSource).toContain('label: "通道"');
     expect(managerSource).toContain("飞书机器人");
     expect(managerSource).toContain("微信插件");
     expect(managerSource).toContain("App ID");

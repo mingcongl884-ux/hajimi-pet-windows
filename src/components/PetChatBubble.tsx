@@ -1,19 +1,18 @@
 import { Copy, MoreHorizontal, Paperclip, Pencil, Plus, Send, Square, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import type { ChatMessage } from "../../electron/chatClient";
-import type { PetConversation, PetConversationMode } from "../../electron/settingsStore";
+import type { PetConversation } from "../../electron/settingsStore";
 import { buildAttachmentMessage, fileToPromptAttachment, type PromptAttachment } from "../lib/fileMessage";
 
 type Props = {
   displayName: string;
+  bindingLabel: string;
   conversations: PetConversation[];
   activeConversationId: string;
-  bindingLabel: string;
   messages: ChatMessage[];
   error?: string;
-  agentMode: boolean;
-  sending?: boolean;
-  onCreateConversation(mode: PetConversationMode): void | Promise<void>;
+  sending: boolean;
+  onCreateConversation(): void | Promise<void>;
   onSwitchConversation(conversationId: string): void | Promise<void>;
   onDeleteConversation(conversationId: string): void | Promise<void>;
   onSend(message: ChatMessage): void | Promise<void>;
@@ -21,15 +20,14 @@ type Props = {
   onClose(): void;
 };
 
-export default function ChatPanel({
+export default function PetChatBubble({
   displayName,
+  bindingLabel,
   conversations,
   activeConversationId,
-  bindingLabel,
   messages,
   error,
-  agentMode,
-  sending = false,
+  sending,
   onCreateConversation,
   onSwitchConversation,
   onDeleteConversation,
@@ -51,7 +49,11 @@ export default function ChatPanel({
     if (messageList) {
       messageList.scrollTop = messageList.scrollHeight;
     }
-  }, [messages.length, error]);
+  }, [messages.length, error, sending]);
+
+  useEffect(() => {
+    draftInputRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -63,7 +65,6 @@ export default function ChatPanel({
         setMenuOpen(false);
       }
     };
-
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setMenuOpen(false);
@@ -83,12 +84,13 @@ export default function ChatPanel({
     if (sending || (!draft.trim() && pendingAttachments.length === 0)) {
       return;
     }
-    const message = pendingAttachments.length > 0
+
+    const message = pendingAttachments.length
       ? buildAttachmentMessage(draft, pendingAttachments)
       : { role: "user" as const, content: draft.trim() };
-    void onSend(message);
     setDraft("");
     setPendingAttachments([]);
+    void Promise.resolve(onSend(message)).catch(() => undefined);
   }
 
   async function sendFile(event: ChangeEvent<HTMLInputElement>) {
@@ -102,8 +104,10 @@ export default function ChatPanel({
     if (!files.length) {
       return;
     }
+
     const nextAttachments = await Promise.all(files.map((file) => fileToPromptAttachment(file)));
     setPendingAttachments((current) => [...current, ...nextAttachments]);
+    requestAnimationFrame(() => draftInputRef.current?.focus());
   }
 
   function removeAttachment(id: string) {
@@ -150,32 +154,27 @@ export default function ChatPanel({
 
   return (
     <section
-      className={dragActive ? "chat-panel composer-drop-active" : "chat-panel"}
+      className={dragActive ? "pet-chat-bubble composer-drop-active" : "pet-chat-bubble"}
+      data-scope="current office conversation"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <header>
-        <div className="chat-title-block">
+      <header className="pet-chat-header">
+        <div>
           <strong>{displayName}</strong>
-          <span className="chat-binding-label">{bindingLabel}</span>
+          <span>{bindingLabel}</span>
         </div>
-        <div className="chat-header-actions">
-          <div className="chat-overflow" ref={menuRef}>
-            <button
-              className="chat-panel-menu-button"
-              type="button"
-              title="更多会话操作"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen((open) => !open)}
-            >
+        <div className="pet-chat-actions">
+          <div className="pet-chat-overflow" ref={menuRef}>
+            <button type="button" title="更多" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
               <MoreHorizontal size={15} />
             </button>
             {menuOpen && (
-              <div className="chat-overflow-menu">
-                <button type="button" onClick={() => runMenuAction(() => onCreateConversation("chat"))}>
+              <div className="pet-chat-overflow-menu">
+                <button type="button" onClick={() => runMenuAction(onCreateConversation)}>
                   <Plus size={14} />
-                  <span>新建会话</span>
+                  <span>新建办公会话</span>
                 </button>
                 <button
                   type="button"
@@ -183,45 +182,42 @@ export default function ChatPanel({
                   onClick={() => runMenuAction(() => onDeleteConversation(activeConversationId))}
                 >
                   <Trash2 size={14} />
-                  <span>删除会话</span>
+                  <span>删除当前会话</span>
                 </button>
               </div>
             )}
           </div>
-          <button title="关闭" type="button" onClick={onClose}>
+          <button type="button" title="关闭" onClick={onClose}>
             <X size={15} />
           </button>
         </div>
       </header>
 
-      <div className="conversation-bar">
-        <select
-          value={activeConversationId}
-          title="选择会话"
-          onChange={(event) => void onSwitchConversation(event.target.value)}
-        >
-          {conversations.map((conversation) => (
-            <option key={conversation.id} value={conversation.id}>
-              {conversation.title}
-            </option>
-          ))}
-        </select>
-      </div>
+      <select
+        className="pet-chat-select"
+        value={activeConversationId}
+        title="选择会话"
+        onChange={(event) => void onSwitchConversation(event.target.value)}
+      >
+        {conversations.map((conversation) => (
+          <option key={conversation.id} value={conversation.id}>
+            {conversation.title}
+          </option>
+        ))}
+      </select>
 
-      <div className="message-list" ref={messageListRef}>
-        {messages.length === 0 && (
-          <p className="muted">{agentMode ? "让哈基Mi处理当前办公区里的事。" : "喵？"}</p>
-        )}
+      <div className="pet-chat-messages" ref={messageListRef}>
+        {messages.length === 0 && <p className="pet-chat-empty">让哈基Mi处理当前办公区里的事。</p>}
         {messages.map((message, index) => (
-          <div className={message.role === "user" ? "message user" : "message assistant"} key={index}>
+          <div className={message.role === "user" ? "pet-chat-message user" : "pet-chat-message assistant"} key={index}>
             {message.role === "assistant" && message.durationMs !== undefined && (
-              <span className="message-meta">{formatProcessingTime(message.durationMs)}</span>
+              <span className="pet-chat-meta">{formatProcessingTime(message.durationMs)}</span>
             )}
             <span>{message.displayContent ?? message.content}</span>
             {message.fileOutputs?.length ? (
               <div className="composer-output-files">
                 {message.fileOutputs.map((file) => (
-                  <span className="composer-output-file" key={`${file.path}-${file.size ?? 0}`}>
+                  <span className="composer-output-file" key={`${file.path}-${file.size ?? 0}`} title={file.path}>
                     <Paperclip size={12} />
                     <span>{file.name || file.path}</span>
                   </span>
@@ -238,9 +234,11 @@ export default function ChatPanel({
             </div>
           </div>
         ))}
-        {error && <p className="message error">{error}</p>}
+        {sending && <p className="pet-chat-processing">处理中...</p>}
+        {error && <p className="pet-chat-error">{error}</p>}
       </div>
-      <form onSubmit={submit}>
+
+      <form className="pet-chat-form" onSubmit={submit}>
         {pendingAttachments.length > 0 && (
           <div className="composer-attachments">
             {pendingAttachments.map((attachment) => (
@@ -254,32 +252,34 @@ export default function ChatPanel({
             ))}
           </div>
         )}
-        <input
-          ref={fileInputRef}
-          className="hidden-file-input"
-          type="file"
-          multiple
-          onChange={(event) => void sendFile(event)}
-        />
-        <input
-          ref={draftInputRef}
-          value={draft}
-          disabled={sending}
-          placeholder={agentMode ? "例如：看看 README 并帮我改成新版说明" : ""}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <button className="chat-file-button" title="发送文件" type="button" onClick={() => fileInputRef.current?.click()}>
-          <Paperclip size={16} />
-        </button>
-        <button
-          className={sending ? "chat-send-button stop" : "chat-send-button"}
-          title={sending ? "停止生成" : "发送"}
-          type={sending ? "button" : "submit"}
-          disabled={!sending && !draft.trim() && pendingAttachments.length === 0}
-          onClick={sending ? () => void onCancel() : undefined}
-        >
-          {sending ? <Square size={13} /> : <Send size={16} />}
-        </button>
+        <div className="pet-chat-input-row">
+          <input
+            ref={fileInputRef}
+            className="hidden-file-input"
+            type="file"
+            multiple
+            onChange={(event) => void sendFile(event)}
+          />
+          <input
+            ref={draftInputRef}
+            value={draft}
+            disabled={sending}
+            placeholder="例如：看看 README 并帮我改成新版说明"
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          <button type="button" title="添加文件" onClick={() => fileInputRef.current?.click()}>
+            <Paperclip size={16} />
+          </button>
+          <button
+            className={sending ? "pet-chat-send stop" : "pet-chat-send"}
+            type={sending ? "button" : "submit"}
+            title={sending ? "停止" : "发送"}
+            disabled={!sending && !draft.trim() && pendingAttachments.length === 0}
+            onClick={sending ? () => void onCancel() : undefined}
+          >
+            {sending ? <Square size={13} /> : <Send size={16} />}
+          </button>
+        </div>
       </form>
     </section>
   );

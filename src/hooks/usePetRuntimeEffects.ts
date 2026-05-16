@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 import { useEffect, useRef } from "react";
 import type { MutableRefObject, SetStateAction, Dispatch } from "react";
 import type { PetAppState } from "../global";
@@ -9,11 +11,13 @@ import { getWorkRhythmCue } from "../lib/workRhythm";
 import { buildPetMoveCommand } from "../lib/petMotion";
 import { resolveReminderTarget } from "../lib/reminderTarget";
 import type { PetMoodEvent } from "../lib/petMood";
+import { shouldCollapseToBubble as shouldCollapseHeartbeatToBubble } from "../lib/heartbeat";
+import { createRuntimeSchedule } from "../lib/runtimeScheduler";
 import type { AppMode, BubbleState } from "../types/petUi";
 
 type RuntimeCallbacks = {
   setBubble: Dispatch<SetStateAction<BubbleState | undefined>>;
-  setChatOpen: Dispatch<SetStateAction<boolean>>;
+  setChatOpen: (open: boolean) => void;
   setTimedPetStatus: (nextStatus: AnimationState, durationMs: number) => void;
   showBubble: (text: string, tone: BubbleState["tone"]) => void;
   updatePetMood: (event: PetMoodEvent) => void;
@@ -40,13 +44,21 @@ type UsePetRuntimeEffectsOptions = {
 };
 
 const BUBBLE_AUTO_HIDE_MS = 15000;
+const RUNTIME_TICK_MS = 1000;
+const HEARTBEAT_INTERVAL_MS = 60_000;
+const DESKTOP_CUE_INTERVAL_MS = 5 * 60 * 1000;
+const NETWORK_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+type RuntimeScheduleTaskId = "collapse" | "minuteCue" | "desktopCue" | "networkCheck";
 
 export function usePetRuntimeEffects(options: UsePetRuntimeEffectsOptions) {
   const runtimeRef = useRef(options.runtime);
+  const optionsRef = useRef(options);
 
   useEffect(() => {
     runtimeRef.current = options.runtime;
-  }, [options.runtime]);
+    optionsRef.current = options;
+  }, [options]);
 
   useEffect(() => {
     if (!options.bubble) {
@@ -62,46 +74,37 @@ export function usePetRuntimeEffects(options: UsePetRuntimeEffectsOptions) {
       return;
     }
 
-    const timer = window.setInterval(() => {
-      const settings = options.state?.settings;
-      if (!settings) {
-        return;
+    const schedule = createRuntimeSchedule<RuntimeScheduleTaskId>([
+      { id: "collapse", intervalMs: RUNTIME_TICK_MS },
+      { id: "minuteCue", intervalMs: HEARTBEAT_INTERVAL_MS, runOnStart: true },
+      { id: "desktopCue", intervalMs: DESKTOP_CUE_INTERVAL_MS, runOnStart: true },
+      {
+        id: "networkCheck",
+        intervalMs: NETWORK_CHECK_INTERVAL_MS,
+        runOnStart: true,
+        enabled: options.state.settings.network.autoCheckEnabled
       }
+    ]);
+    options.networkCheckStartedRef.current = options.state.settings.network.autoCheckEnabled;
 
-      if (settings.heartbeat.collapseToBubbleEnabled && shouldCollapseToBubble({
-        busy: options.busyRef.current,
-        chatOpen: options.chatOpen,
-        bubbleOpen: Boolean(options.bubble),
-        idleMs: Date.now() - options.lastInteractionRef.current,
-        thresholdMs: settings.heartbeat.bubbleIdleSeconds * 1000
-      })) {
-        runtimeRef.current.setChatOpen(false);
-        runtimeRef.current.setBubble({
-          text: options.agentMode ? "哈基Mi正在办公，完成后会把结果放在这里。" : "哈基Mi正在想，等会儿用气泡告诉你。",
-          tone: "working"
-        });
-      }
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [options.agentMode, options.bubble, options.chatOpen, options.mode, options.state]);
-
-  useEffect(() => {
-    if (!options.state || options.mode === "manager" || !options.state.settings.heartbeat.enabled) {
-      return;
-    }
-
-    const triggerCue = (cue: NonNullable<ReturnType<typeof getWorkRhythmCue>>) => {
-      options.seenWorkCueKeysRef.current.add(cue.key);
+    const triggerCue = (
+      latest: UsePetRuntimeEffectsOptions,
+      cue: NonNullable<ReturnType<typeof getWorkRhythmCue>>
+    ) => {
+      latest.seenWorkCueKeysRef.current.add(cue.key);
       runtimeRef.current.setChatOpen(false);
       if (cue.followCursor) {
-        const cursor = options.cursorPositionRef.current;
+        const latestState = latest.state;
+        if (!latestState) {
+          return;
+        }
+        const cursor = latest.cursorPositionRef.current;
         const cursorIsFresh = cursor.at > 0 && Date.now() - cursor.at <= 5000;
         if (cursorIsFresh) {
           void window.petApp.getPetWindowBounds().then((currentBounds) => {
             const command = buildPetMoveCommand(
               { x: currentBounds.x, y: currentBounds.y },
-              resolveReminderTarget(cursor.x, cursor.y, options.state?.screen, currentBounds)
+              resolveReminderTarget(cursor.x, cursor.y, latestState.screen, currentBounds)
             );
             void window.petApp.movePetTo(command);
             runtimeRef.current.setTimedPetStatus(cue.followStatus, command.durationMs + 1000);
@@ -115,22 +118,136 @@ export function usePetRuntimeEffects(options: UsePetRuntimeEffectsOptions) {
       runtimeRef.current.showBubble(cue.bubble, cue.tone);
     };
 
-    const tick = () => {
-      const cue = getWorkRhythmCue({
-        now: new Date(),
-        activeRecently: options.busyRef.current || Date.now() - options.lastInteractionRef.current <= 120_000,
-        bubbleOpen: Boolean(options.bubble),
-        seenCueKeys: options.seenWorkCueKeysRef.current
-      });
-      if (cue) {
-        triggerCue(cue);
+    const runCollapseTick = () => {
+      const latest = optionsRef.current;
+      const settings = latest.state?.settings;
+      if (!settings) {
+        return;
+      }
+
+      if (settings.heartbeat.collapseToBubbleEnabled && shouldCollapseHeartbeatToBubble({
+        busy: latest.busyRef.current,
+        chatOpen: latest.chatOpen,
+        bubbleOpen: Boolean(latest.bubble),
+        idleMs: Date.now() - latest.lastInteractionRef.current,
+        thresholdMs: settings.heartbeat.bubbleIdleSeconds * 1000
+      })) {
+        runtimeRef.current.setChatOpen(false);
+        runtimeRef.current.setBubble({
+          text: latest.agentMode ? "哈基Mi正在办公，完成后会把结果放在这里。" : "哈基Mi正在想，等会儿用气泡告诉你。",
+          tone: "working"
+        });
       }
     };
 
-    tick();
-    const timer = window.setInterval(tick, 60_000);
-    return () => window.clearInterval(timer);
-  }, [options.bubble, options.mode, options.state]);
+    function runMinuteTick() {
+      const latest = optionsRef.current;
+      const latestState = latest.state;
+      if (!latestState || latest.mode === "manager") {
+        return;
+      }
+
+      if (latestState.settings.heartbeat.enabled) {
+        const workCue = getWorkRhythmCue({
+          now: new Date(),
+          activeRecently: latest.busyRef.current || Date.now() - latest.lastInteractionRef.current <= 120_000,
+          bubbleOpen: Boolean(latest.bubble),
+          seenCueKeys: latest.seenWorkCueKeysRef.current
+        });
+        if (workCue) {
+          triggerCue(latest, workCue);
+          return;
+        }
+      }
+
+      const lonelyCue = getLonelyCue({
+        idleMs: Date.now() - latest.lastInteractionRef.current,
+        busy: latest.busyRef.current,
+        chatOpen: latest.chatOpen,
+        bubbleOpen: Boolean(latest.bubble),
+        movementEnabled: latestState.settings.movementEnabled,
+        now: new Date(),
+        lastCueAt: latest.lastLonelyCueAtRef.current
+      });
+      if (lonelyCue) {
+        latest.lastLonelyCueAtRef.current = Date.now();
+        runtimeRef.current.setChatOpen(false);
+        runtimeRef.current.setTimedPetStatus(lonelyCue.status, 1600);
+        runtimeRef.current.showBubble(lonelyCue.bubble, lonelyCue.tone);
+        return;
+      }
+
+      void runtimeRef.current.runHeartbeatCheck();
+    }
+
+    const readBatteryStatus = async () => {
+      const navigatorWithBattery = navigator as Navigator & {
+        getBattery?: () => Promise<{ charging: boolean; level: number }>;
+      };
+      return navigatorWithBattery.getBattery?.();
+    };
+
+    const runDesktopCueTick = async () => {
+      const latest = optionsRef.current;
+      if (!latest.state || latest.mode === "manager") {
+        return;
+      }
+
+      try {
+        const [battery, systemStatus] = await Promise.all([
+          readBatteryStatus(),
+          window.petApp.getSystemStatus().catch(() => undefined)
+        ]);
+        const cue = getDesktopEventCue({
+          online: navigator.onLine,
+          battery,
+          memory: systemStatus?.memory,
+          seenCueKeys: latest.seenDesktopCueKeysRef.current
+        });
+        if (!cue || latest.bubble || latest.chatOpen) {
+          return;
+        }
+        latest.seenDesktopCueKeysRef.current.add(cue.key);
+        runtimeRef.current.updatePetMood("workTooLong");
+        runtimeRef.current.setTimedPetStatus(cue.status, 1800);
+        runtimeRef.current.showBubble(cue.bubble, "info");
+      } catch {
+        // Desktop status is helpful but optional.
+      }
+    };
+
+    const runRuntimeTick = () => {
+      const latest = optionsRef.current;
+      const now = Date.now();
+      const networkEnabled = Boolean(latest.state?.settings.network.autoCheckEnabled);
+      schedule.setEnabled("networkCheck", networkEnabled, now);
+      latest.networkCheckStartedRef.current = networkEnabled;
+
+      for (const task of schedule.tick(now)) {
+        switch (task) {
+          case "collapse":
+            runCollapseTick();
+            break;
+          case "minuteCue":
+            runMinuteTick();
+            break;
+          case "desktopCue":
+            void runDesktopCueTick();
+            break;
+          case "networkCheck":
+            void runtimeRef.current.runNetworkCheck();
+            break;
+        }
+      }
+    };
+
+    runRuntimeTick();
+    const timer = window.setInterval(runRuntimeTick, RUNTIME_TICK_MS);
+    return () => {
+      options.networkCheckStartedRef.current = false;
+      window.clearInterval(timer);
+    };
+  }, [options.mode, Boolean(options.state)]);
 
   useEffect(() => {
     if (!options.state || options.mode === "manager") {
@@ -152,110 +269,6 @@ export function usePetRuntimeEffects(options: UsePetRuntimeEffectsOptions) {
   }, [options.mode, options.state]);
 
   useEffect(() => {
-    if (!options.state || options.mode === "manager") {
-      return;
-    }
-
-    const tick = () => {
-      const cue = getLonelyCue({
-        idleMs: Date.now() - options.lastInteractionRef.current,
-        busy: options.busyRef.current,
-        chatOpen: options.chatOpen,
-        bubbleOpen: Boolean(options.bubble),
-        movementEnabled: options.state?.settings.movementEnabled ?? false,
-        now: new Date(),
-        lastCueAt: options.lastLonelyCueAtRef.current
-      });
-      if (!cue) {
-        return;
-      }
-      options.lastLonelyCueAtRef.current = Date.now();
-      runtimeRef.current.setChatOpen(false);
-      runtimeRef.current.setTimedPetStatus(cue.status, 1600);
-      runtimeRef.current.showBubble(cue.bubble, cue.tone);
-    };
-
-    tick();
-    const timer = window.setInterval(tick, 60_000);
-    return () => window.clearInterval(timer);
-  }, [options.bubble, options.chatOpen, options.mode, options.state]);
-
-  useEffect(() => {
-    if (!options.state || options.mode === "manager") {
-      return;
-    }
-
-    const readBatteryStatus = async () => {
-      const navigatorWithBattery = navigator as Navigator & {
-        getBattery?: () => Promise<{ charging: boolean; level: number }>;
-      };
-      return navigatorWithBattery.getBattery?.();
-    };
-
-    const tick = async () => {
-      try {
-        const [battery, systemStatus] = await Promise.all([
-          readBatteryStatus(),
-          window.petApp.getSystemStatus().catch(() => undefined)
-        ]);
-        const cue = getDesktopEventCue({
-          online: navigator.onLine,
-          battery,
-          memory: systemStatus?.memory,
-          seenCueKeys: options.seenDesktopCueKeysRef.current
-        });
-        if (!cue || options.bubble || options.chatOpen) {
-          return;
-        }
-        options.seenDesktopCueKeysRef.current.add(cue.key);
-        runtimeRef.current.updatePetMood("workTooLong");
-        runtimeRef.current.setTimedPetStatus(cue.status, 1800);
-        runtimeRef.current.showBubble(cue.bubble, "info");
-      } catch {
-        // Desktop status is helpful but optional.
-      }
-    };
-
-    void tick();
-    const timer = window.setInterval(tick, 5 * 60 * 1000);
-    return () => window.clearInterval(timer);
-  }, [options.bubble, options.chatOpen, options.mode, options.state]);
-
-  useEffect(() => {
-    if (!options.state || options.mode === "manager") {
-      return;
-    }
-
-    const tick = () => {
-      void runtimeRef.current.runHeartbeatCheck();
-    };
-    tick();
-    const timer = window.setInterval(tick, 60_000);
-    return () => window.clearInterval(timer);
-  }, [options.mode, options.state]);
-
-  useEffect(() => {
-    if (!options.state?.settings.network.autoCheckEnabled) {
-      options.networkCheckStartedRef.current = false;
-      return;
-    }
-    if (options.networkCheckStartedRef.current) {
-      return;
-    }
-
-    options.networkCheckStartedRef.current = true;
-    const run = () => {
-      void runtimeRef.current.runNetworkCheck();
-    };
-    run();
-    const timer = window.setInterval(run, 6 * 60 * 60 * 1000);
-    return () => {
-      options.networkCheckStartedRef.current = false;
-      window.clearInterval(timer);
-    };
-  }, [options.state?.settings.network.autoCheckEnabled]);
-
-  useEffect(() => {
     return () => {
       if (options.petActionStatusTimeoutRef.current) {
         window.clearTimeout(options.petActionStatusTimeoutRef.current);
@@ -267,14 +280,4 @@ export function usePetRuntimeEffects(options: UsePetRuntimeEffectsOptions) {
       }
     };
   }, []);
-}
-
-function shouldCollapseToBubble(options: {
-  busy: boolean;
-  chatOpen: boolean;
-  bubbleOpen: boolean;
-  idleMs: number;
-  thresholdMs: number;
-}) {
-  return !options.busy && options.chatOpen && !options.bubbleOpen && options.idleMs >= options.thresholdMs;
 }
