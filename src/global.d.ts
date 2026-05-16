@@ -56,6 +56,10 @@ declare global {
       deletePet(petId: string): Promise<PetAppState>;
       switchPet(petId: string): Promise<PetAppState>;
       saveSettings(settings: AppSettings): Promise<PetAppState>;
+      startRemoteBridge(): Promise<PetAppState>;
+      stopRemoteBridge(): Promise<PetAppState>;
+      generateRemotePairingCode(): Promise<PetAppState>;
+      revokeRemoteDevice(deviceId: string): Promise<PetAppState>;
       startChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
       stopChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
       testChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;

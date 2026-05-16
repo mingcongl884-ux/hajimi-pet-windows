@@ -14,6 +14,7 @@ import {
 } from "electron";
 import type { OpenDialogOptions } from "electron";
 import { appendFile, cp, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { randomInt } from "node:crypto";
 import { freemem, totalmem } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,6 +44,7 @@ import { removeProject, switchProject, upsertProject } from "../src/lib/projects
 import { startWeixinMessageBridge, type WeixinMessageBridgeStop, type WeixinMessageReply } from "./weixinMessageBridge.js";
 import { ProjectMemoryStore } from "./projectMemoryStore.js";
 import type { ProjectMemoryUpdate } from "../src/lib/projectMemory.js";
+import { startRemoteBridgeHost, type RemoteBridgeHostController } from "./remoteBridgeHost.js";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
 const PET_ASSET_PROTOCOL = "pet-asset";
@@ -60,6 +62,7 @@ let petPlayInterval: NodeJS.Timeout | undefined;
 let petPlayTick = 0;
 let currentPetScale = DEFAULT_SETTINGS.petScale;
 let stopWeixinBridge: WeixinMessageBridgeStop | undefined;
+let remoteBridgeHost: RemoteBridgeHostController | undefined;
 let channelMessageQueue = Promise.resolve();
 const channelRuntimeStatusKeys = new Map<ChannelProvider, string>();
 const activeChatTaskControllers = new Map<string, AbortController>();
@@ -115,6 +118,7 @@ async function createWindows() {
   createTray();
   startPetPlayLoop();
   scheduleEnabledChannelRestore(settings);
+  void syncRemoteBridgeHost(settings);
   void refreshKeyboardControlShortcuts(settings);
 }
 
@@ -286,9 +290,74 @@ function registerIpc() {
   ipcMain.handle("pet:save-settings", async (_event, settings: AppSettings) => {
     currentPetScale = settings.petScale;
     await settingsStore.saveSettings(settings);
+    await syncRemoteBridgeHost(settings);
     syncChannelBridges(settings);
     void refreshKeyboardControlShortcuts(settings);
     refreshTray();
+    return broadcastState();
+  });
+  ipcMain.handle("pet:start-remote-bridge", async () => {
+    const settings = await settingsStore.loadSettings();
+    const nextSettings = {
+      ...settings,
+      remoteBridge: {
+        ...settings.remoteBridge,
+        enabled: true,
+        host: { ...settings.remoteBridge.host, status: "listening" as const }
+      }
+    };
+    await settingsStore.saveSettings(nextSettings);
+    await syncRemoteBridgeHost(nextSettings);
+    return broadcastState();
+  });
+  ipcMain.handle("pet:stop-remote-bridge", async () => {
+    const settings = await settingsStore.loadSettings();
+    const nextSettings = {
+      ...settings,
+      remoteBridge: {
+        ...settings.remoteBridge,
+        enabled: false,
+        host: { ...settings.remoteBridge.host, status: "disabled" as const, pairingCode: undefined, pairingExpiresAt: undefined }
+      }
+    };
+    await settingsStore.saveSettings(nextSettings);
+    await stopRemoteBridgeHost();
+    return broadcastState();
+  });
+  ipcMain.handle("pet:generate-remote-pairing-code", async () => {
+    const settings = await settingsStore.loadSettings();
+    const nextSettings = {
+      ...settings,
+      remoteBridge: {
+        ...settings.remoteBridge,
+        enabled: true,
+        host: {
+          ...settings.remoteBridge.host,
+          status: "listening" as const,
+          pairingCode: String(randomInt(100000, 1000000)),
+          pairingExpiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString()
+        }
+      }
+    };
+    await stopRemoteBridgeHost();
+    await settingsStore.saveSettings(nextSettings);
+    await syncRemoteBridgeHost(nextSettings);
+    return broadcastState();
+  });
+  ipcMain.handle("pet:revoke-remote-device", async (_event, deviceId: string) => {
+    const settings = await settingsStore.loadSettings();
+    const nextSettings = {
+      ...settings,
+      remoteBridge: {
+        ...settings.remoteBridge,
+        trustedDevices: settings.remoteBridge.trustedDevices.map((device) => device.id === deviceId
+          ? { ...device, revokedAt: new Date().toISOString() }
+          : device)
+      }
+    };
+    await settingsStore.saveSettings(nextSettings);
+    await stopRemoteBridgeHost();
+    await syncRemoteBridgeHost(nextSettings);
     return broadcastState();
   });
   ipcMain.handle("pet:start-channel", async (_event, provider: ChannelProvider) => {
@@ -733,6 +802,62 @@ async function restoreEnabledChannels() {
   }
 }
 
+async function syncRemoteBridgeHost(settings: AppSettings) {
+  if (!settings.remoteBridge.enabled) {
+    await stopRemoteBridgeHost();
+    return;
+  }
+  if (remoteBridgeHost) {
+    return;
+  }
+  const workspaceDir = settings.agent.workspaceDir.trim();
+  if (!workspaceDir) {
+    await writeRuntimeLog("remote bridge not started: workspace is empty");
+    return;
+  }
+
+  const trustedDevices = settings.remoteBridge.trustedDevices;
+  remoteBridgeHost = await startRemoteBridgeHost({
+    port: settings.remoteBridge.host.port,
+    pairingCode: settings.remoteBridge.host.pairingCode,
+    pairingExpiresAt: settings.remoteBridge.host.pairingExpiresAt,
+    workspaceDir,
+    permissionMode: settings.remoteBridge.host.permissionMode,
+    trustedDevices,
+    onTrustDevice: async (device) => {
+      const latestSettings = await settingsStore.loadSettings();
+      const nextSettings = {
+        ...latestSettings,
+        remoteBridge: {
+          ...latestSettings.remoteBridge,
+          trustedDevices: [
+            ...latestSettings.remoteBridge.trustedDevices.filter((item) => item.id !== device.id),
+            device
+          ]
+        }
+      };
+      await settingsStore.saveSettings(nextSettings);
+      trustedDevices.push(device);
+      await broadcastState();
+      return device;
+    },
+    onAudit: async (event) => {
+      await writeRuntimeLog(`remote bridge ${event.type}: ${event.message}`);
+    }
+  });
+  await writeRuntimeLog(`remote bridge listening on ${remoteBridgeHost.url}`);
+}
+
+async function stopRemoteBridgeHost() {
+  if (!remoteBridgeHost) {
+    return;
+  }
+  const host = remoteBridgeHost;
+  remoteBridgeHost = undefined;
+  await host.stop();
+  await writeRuntimeLog("remote bridge stopped");
+}
+
 type ChannelBridgeSyncOptions = {
   allowStarting?: boolean;
 };
@@ -1119,4 +1244,5 @@ app.on("before-quit", () => {
   }
   stopWeixinBridge?.();
   stopWeixinBridge = undefined;
+  void stopRemoteBridgeHost();
 });
