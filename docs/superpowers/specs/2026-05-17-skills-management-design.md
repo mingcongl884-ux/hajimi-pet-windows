@@ -121,6 +121,28 @@ Clicking opens a small popover:
 
 Do not add a large inline checklist to the main office page.
 
+### Slash Skill Invocation
+
+Explicit skill invocation should follow Codex-style slash behavior.
+
+When the user types `/` in the office composer, show a compact command palette above the composer. The palette filters installed and enabled skills as the user types.
+
+Examples:
+
+```text
+/
+/excel
+/公众号
+```
+
+Selecting a skill inserts a lightweight invocation token into the composer and pins that skill for the current task. The visible text can remain simple:
+
+```text
+/excel-summary 帮我分析这个表格
+```
+
+Slash invocation should not create another toolbar, modal, or separate page. It is the primary manual way to call a skill.
+
 ## Skill Model
 
 ### Registry
@@ -201,7 +223,7 @@ Flow:
 1. Resolve enabled skills for the current task.
 2. Build a compact skill index from `name` and `description`.
 3. Include that index in the OpenClaw agent system prompt.
-4. If task text directly invokes `/skill-name` or matches a high-confidence description, include the first section of that skill's `SKILL.md` body.
+4. If task text directly invokes a skill through `/` or matches a high-confidence description, include the first section of that skill's `SKILL.md` body.
 5. Avoid injecting every skill body on every request.
 
 This keeps ordinary office useful without making prompts huge.
@@ -237,6 +259,8 @@ Direct user invocation should work:
 ```
 
 When a skill is directly invoked, HaJiMi pins that skill for the current task.
+
+The slash palette is only a selection surface. The actual call still goes through the same skill resolution path, so typed `/skill-name` and palette-selected skills behave the same way.
 
 ## Permission And Safety
 
@@ -323,7 +347,7 @@ Add tests for:
 - composer skill mode source wiring;
 - Claude Agent SDK receives the selected `skills` option;
 - OpenClaw receives compact skill metadata without injecting disabled skills;
-- direct `/skill-name` invocation pins the skill for one task;
+- direct `/` invocation opens the skill palette and pins the chosen skill for one task;
 - permissions remain governed by office permission mode.
 
 ## First Implementation Slice
@@ -332,7 +356,7 @@ Add tests for:
 2. Add skill store under app user data.
 3. Add IPC for list/import/remove/update skills.
 4. Add Skills page in sidebar.
-5. Add compact composer skills selector.
+5. Add compact composer skills selector plus Codex-style `/` skill palette.
 6. Wire advanced office to Claude Agent SDK `skills` option.
 7. Wire ordinary office to compact skill compatibility context.
 8. Add tests and one local smoke test.
@@ -344,6 +368,6 @@ Add tests for:
 - The user can enable it globally or for the current project.
 - Advanced office exposes enabled skills natively to Claude Agent SDK.
 - Ordinary office can use enabled skills without bloating every prompt.
-- Direct `/skill-name` task invocation works.
+- Direct `/` skill invocation works like Codex-style slash selection.
 - A skill cannot silently widen permissions.
 - No new heavy background service is introduced.
