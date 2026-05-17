@@ -230,19 +230,19 @@ export default function ManagerPage({
     };
   }, [targetMenuOpen]);
   useEffect(() => {
-    if (!sendingOfficeMessage) {
+    if (!activeOfficeTask || (activeOfficeTask.phase !== "processing" && activeOfficeTask.phase !== "starting")) {
       setOfficeElapsedMs(1000);
       return;
     }
 
-    const startedAt = Date.now();
+    const startedAt = activeOfficeTask.startedAt;
     setOfficeElapsedMs(1000);
     const timer = window.setInterval(() => {
       setOfficeElapsedMs(Date.now() - startedAt);
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [sendingOfficeMessage]);
+  }, [activeOfficeTask?.id, activeOfficeTask?.phase, activeOfficeTask?.startedAt]);
 
   async function save(next = settings) {
     setSaving(true);
@@ -1148,15 +1148,6 @@ export default function ManagerPage({
                     )}
                   </div>
                 )}
-              </article>
-            )}
-            {!activeOfficeTask && sendingOfficeMessage && (
-              <article className="codex-message assistant task-status-message">
-                <span className="codex-message-meta task-status-meta">
-                  <span className="task-status-dot" />
-                  处理中 {formatElapsedTime(officeElapsedMs)}
-                </span>
-                <p>收到，正在处理...</p>
               </article>
             )}
             {!activeOfficeTask && officeTaskStatus === "cancelled" && !sendingOfficeMessage && (

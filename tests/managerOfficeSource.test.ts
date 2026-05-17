@@ -81,6 +81,7 @@ describe("manager office workspace source", () => {
     expect(managerSource).not.toContain("setActiveOfficeTask");
     expect(managerSource).not.toContain("createTaskCard");
     expect(managerSource).not.toContain("shouldShowTaskCard");
+    expect(managerSource).not.toContain("showInlineProgress");
     expect(managerSource).toContain("task-card");
     expect(managerSource).toContain("retryOfficeMessage");
     expect(managerSource).toContain("Square");
@@ -94,7 +95,6 @@ describe("manager office workspace source", () => {
     expect(managerSource).toContain("setOfficeDraft(\"\")");
     expect(managerSource).toContain("requestAnimationFrame");
     expect(managerSource).toContain("section, activeConversation?.id, messages.length, messages.at(-1)?.content, sendingOfficeMessage, chatError");
-    expect(managerSource).toContain("收到，正在处理...");
     expect(managerSource).toContain("scrollTop = messageList.scrollHeight");
     expect(stylesSource).toContain("grid-template-rows: minmax(0, 1fr) auto");
     expect(stylesSource).toContain(".codex-sidebar-nav button");

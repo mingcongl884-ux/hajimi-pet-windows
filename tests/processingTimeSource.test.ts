@@ -12,7 +12,7 @@ describe("assistant processing time", () => {
     expect(appSource).toContain("const startedAt = Date.now()");
     expect(appSource).toContain("durationMs: Date.now() - startedAt");
     expect(managerSource).toContain("formatProcessingTime");
-    expect(managerSource).toContain("formatElapsedTime(officeElapsedMs)");
+    expect(managerSource).toContain("formatTaskElapsed(activeOfficeTaskElapsedMs)");
     expect(managerSource).toContain("officeTaskStatus");
     expect(managerSource).toContain("lastFailedOfficeMessage");
   });
