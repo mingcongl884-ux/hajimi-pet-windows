@@ -7,6 +7,7 @@ import { ChatClientError, fetchChatCompletion } from "./chatClient.js";
 import type { AgentSettings } from "./settingsStore.js";
 import { readPetAction, type PetAction } from "../src/lib/petActions.js";
 import type { RemoteToolName } from "../src/lib/remoteBridge.js";
+import type { ResolvedSkillContext } from "../src/lib/skills.js";
 import {
   batchFiles,
   buildProcessListCommand,
@@ -56,6 +57,7 @@ export type AgentToolExecutor = (toolName: RemoteToolName, args: Record<string, 
 export type AgentExecutionContext = {
   executionContext?: string;
   remoteToolExecutor?: AgentToolExecutor;
+  skillContext?: ResolvedSkillContext;
 };
 
 const MAX_STEPS = 6;
@@ -633,8 +635,9 @@ function buildAgentPrompt(systemPrompt: string, agent: AgentSettings, context: A
     "If the user asks for Desktop output, write to Desktop/<filename> in auto-review or full-access mode.",
     "For code or file tasks: inspect relevant files first, make focused edits, run a suitable verification command when available, then summarize the outcome.",
     "Prefer search_files before guessing where code lives. Prefer read_file before write_file.",
+    context.skillContext?.contextText ? `HaJiMi skill context:\n${context.skillContext.contextText}` : "",
     "Explain what you changed or what command output means. Do not claim work is done unless a tool result supports it."
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 function buildTextToolPrompt(

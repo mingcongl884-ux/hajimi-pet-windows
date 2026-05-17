@@ -1,6 +1,5 @@
 import {
   Bot,
-  BriefcaseBusiness,
   ChevronDown,
   ChevronRight,
   FolderOpen,
@@ -8,12 +7,14 @@ import {
   Plus,
   Settings2,
   SlidersHorizontal,
+  Sparkles,
   Trash2
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AppSettings, PetConversation, PetConversationMode } from "../../electron/settingsStore";
 
-export type ManagerSection = "office" | "pets" | "models" | "channels" | "system";
+export type ManagerSection = "office" | "pets" | "settings";
+export type SettingsTab = "general" | "models" | "skills" | "channels";
 
 type Props = {
   settings: AppSettings;
@@ -21,6 +22,7 @@ type Props = {
   projectName: string;
   visibleConversations: PetConversation[];
   collapsedProjectIds: string[];
+  settingsTab: SettingsTab;
   renderConversationRow(conversation: PetConversation): ReactNode;
   onChooseWorkspace(): void | Promise<void>;
   onCreateConversation(mode: PetConversationMode): void | Promise<void>;
@@ -28,14 +30,19 @@ type Props = {
   onDeleteProject(projectId: string): void | Promise<void>;
   onToggleProjectCollapsed(projectId: string): void;
   onSectionChange(section: ManagerSection): void;
+  onSettingsTabChange(tab: SettingsTab): void;
 };
 
 const navItems: Array<{ id: ManagerSection; label: string; icon: typeof Bot }> = [
-  { id: "office", label: "办公区", icon: BriefcaseBusiness },
   { id: "pets", label: "宠物", icon: Bot },
+  { id: "settings", label: "设置", icon: Settings2 }
+];
+
+const settingsItems: Array<{ id: SettingsTab; label: string; icon: typeof Bot }> = [
+  { id: "general", label: "常规", icon: SlidersHorizontal },
   { id: "models", label: "模型", icon: Settings2 },
-  { id: "channels", label: "通道", icon: MessageCircle },
-  { id: "system", label: "系统", icon: SlidersHorizontal }
+  { id: "skills", label: "Skills", icon: Sparkles },
+  { id: "channels", label: "通道", icon: MessageCircle }
 ];
 
 export default function ManagerSidebar({
@@ -44,14 +51,41 @@ export default function ManagerSidebar({
   projectName,
   visibleConversations,
   collapsedProjectIds,
+  settingsTab,
   renderConversationRow,
   onChooseWorkspace,
   onCreateConversation,
   onSwitchProject,
   onDeleteProject,
   onToggleProjectCollapsed,
-  onSectionChange
+  onSectionChange,
+  onSettingsTabChange
 }: Props) {
+  if (section === "settings") {
+    return (
+      <aside className="codex-sidebar settings-sidebar">
+        <button className="settings-back-button" onClick={() => onSectionChange("office")}>
+          返回应用
+        </button>
+        <nav className="settings-sidebar-nav" aria-label="设置">
+          {settingsItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                className={settingsTab === item.id ? "active" : ""}
+                key={item.id}
+                onClick={() => onSettingsTabChange(item.id)}
+              >
+                <Icon size={15} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </aside>
+    );
+  }
+
   return (
     <aside className="codex-sidebar">
       <section className="codex-sidebar-section">

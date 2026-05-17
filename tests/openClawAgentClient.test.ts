@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -42,6 +42,28 @@ describe("buildOpenClawConfig", () => {
     expect(config.tools.elevated.enabled).toBe(true);
     expect(config.agents.defaults.sandbox.mode).toBe("off");
   });
+
+  it("adds resolved skill context to the OpenClaw system prompt", () => {
+    const config = buildOpenClawConfig({
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "secret-key",
+      model: "agent-model",
+      systemPrompt: "You are HaJiMi."
+    }, {
+      workspaceDir: "F:\\test",
+      allowCommands: true,
+      permissionMode: "auto-review"
+    }, undefined, {
+      mode: "auto",
+      availableSkills: [],
+      loadedSkills: [],
+      pinnedSkillNames: [],
+      contextText: "Available HaJiMi skills:\n- excel-summary: Analyze spreadsheets"
+    });
+
+    expect(config.agents.defaults.systemPromptOverride).toContain("Available HaJiMi skills");
+    expect(config.agents.list[0].systemPromptOverride).toContain("excel-summary");
+  });
 });
 
 describe("parseOpenClawAgentOutput", () => {
@@ -49,6 +71,24 @@ describe("parseOpenClawAgentOutput", () => {
     const parsed = parseOpenClawAgentOutput("diagnostic\n{\"payloads\":[{\"type\":\"text\",\"text\":\"处理好了\"}],\"meta\":{\"transport\":\"embedded\"}}\n");
 
     expect(parsed.content).toBe("处理好了");
+  });
+});
+
+describe("openClaw output file extraction", () => {
+  it("conservatively extracts existing output files mentioned by OpenClaw text", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "hajimi-openclaw-output-"));
+    const outputPath = join(workspace, "report.xlsx");
+    await writeFile(outputPath, "ok");
+
+    const parsed = parseOpenClawAgentOutput(`{"content":"saved: ${outputPath}"}`, workspace);
+
+    expect(parsed.fileOutputs).toEqual([{ path: outputPath, name: "report.xlsx", size: 2 }]);
+  });
+
+  it("ignores non-existing file-like paths in OpenClaw text", () => {
+    const parsed = parseOpenClawAgentOutput("saved: C:\\nope\\missing.xlsx");
+
+    expect(parsed.fileOutputs).toBeUndefined();
   });
 });
 

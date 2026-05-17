@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { query, type Options, type PermissionMode, type PermissionResult, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { ChatClientError, type ChatFileOutput, type ChatResponse } from "./chatClient.js";
 import type { AgentPermissionMode, AgentSettings, ModelProfile } from "./settingsStore.js";
+import type { ResolvedSkillContext } from "../src/lib/skills.js";
 
 const READ_ONLY_TOOLS = ["Read", "Glob", "Grep", "LS"];
 const EDIT_TOOLS = ["Edit", "MultiEdit", "Write"];
@@ -19,6 +20,7 @@ export type ClaudeAgentTaskOptions = {
   abortController?: AbortController;
   mcpServers?: Options["mcpServers"];
   executionContext?: string;
+  skillContext?: ResolvedSkillContext;
 };
 
 export async function runClaudeAgentTask(
@@ -39,8 +41,9 @@ export async function runClaudeAgentTask(
     systemPrompt: {
       type: "preset",
       preset: "claude_code",
-      append: buildAgentAppendPrompt(model.systemPrompt, agent, runOptions.executionContext)
+      append: buildAgentAppendPrompt(model.systemPrompt, agent, runOptions.executionContext, runOptions.skillContext)
     },
+    ...buildClaudeSkillsOption(runOptions.skillContext),
     ...(runOptions.mcpServers ? { mcpServers: runOptions.mcpServers } : {}),
     abortController: runOptions.abortController
   });
@@ -94,6 +97,19 @@ export function buildClaudePermissionOptions(agent: AgentSettings): Pick<
     permissionMode,
     canUseTool: async (toolName, input) => decideToolUse(toolName, input, false)
   };
+}
+
+export function buildClaudeSkillsOption(skillContext?: ResolvedSkillContext): Pick<Options, "skills"> {
+  if (!skillContext) {
+    return {};
+  }
+  if (skillContext.mode === "off") {
+    return { skills: [] };
+  }
+  const skillNames = skillContext.pinnedSkillNames.length
+    ? skillContext.pinnedSkillNames
+    : skillContext.availableSkills.map((skill) => skill.name);
+  return skillNames.length ? { skills: skillNames } : {};
 }
 
 async function runClaudeQuery(model: ModelProfile, prompt: string, options: Options): Promise<ChatResponse> {
@@ -307,7 +323,12 @@ function readToolOutputSize(input: Record<string, unknown>, filePath: string, wo
   }
 }
 
-function buildAgentAppendPrompt(systemPrompt: string, agent: AgentSettings, executionContext = "Local device"): string {
+export function buildAgentAppendPrompt(
+  systemPrompt: string,
+  agent: AgentSettings,
+  executionContext = "Local device",
+  skillContext?: ResolvedSkillContext
+): string {
   return [
     systemPrompt.trim() || "You are HaJiMi, a friendly desktop pet office agent.",
     "You are running inside the HaJiMi desktop pet app as the advanced office mode.",
@@ -318,7 +339,8 @@ function buildAgentAppendPrompt(systemPrompt: string, agent: AgentSettings, exec
     "When the user asks to launch an app, check the current permission mode and use Bash with a safe Start-Process command instead of only explaining manual steps.",
     "When the user asks for output files, create the files with Write/Edit or Bash and then stop with a concise summary. If they ask for Desktop output, use the user's Desktop folder.",
     "Before editing, inspect the relevant files. After changes, run a suitable verification command when permission allows it.",
-    "Summarize what changed, what you verified, and any follow-up risk."
+    "Summarize what changed, what you verified, and any follow-up risk.",
+    skillContext?.contextText ? `HaJiMi skill context:\n${skillContext.contextText}` : ""
   ].join("\n");
 }
 

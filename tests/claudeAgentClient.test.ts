@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildClaudeEnvironment,
+  buildAgentAppendPrompt,
   buildClaudePermissionOptions,
+  buildClaudeSkillsOption,
   readClaudeFileOutputs,
   resolveClaudeCodeExecutable,
   toClaudePermissionMode
@@ -131,5 +133,52 @@ describe("Claude Agent SDK permissions", () => {
       name: "summary.md",
       size: 4
     }]);
+  });
+
+  it("passes resolved HaJiMi skills through the SDK skills option", () => {
+    expect(buildClaudeSkillsOption({
+      mode: "auto",
+      availableSkills: [{
+        id: "excel",
+        name: "excel-summary",
+        description: "Analyze spreadsheets",
+        path: "C:/skills/excel",
+        source: "managed",
+        enabled: true,
+        scope: "global",
+        importedAt: "2026-05-17T00:00:00.000Z",
+        updatedAt: "2026-05-17T00:00:00.000Z",
+        warnings: []
+      }],
+      loadedSkills: [],
+      pinnedSkillNames: [],
+      contextText: "Available HaJiMi skills"
+    })).toEqual({ skills: ["excel-summary"] });
+
+    expect(buildClaudeSkillsOption({
+      mode: "off",
+      availableSkills: [],
+      loadedSkills: [],
+      pinnedSkillNames: [],
+      contextText: ""
+    })).toEqual({ skills: [] });
+  });
+
+  it("adds managed skill instructions to the advanced office prompt", () => {
+    const prompt = buildAgentAppendPrompt(
+      "System",
+      { workspaceDir: "C:\\work\\project", allowCommands: true, permissionMode: "auto-review" },
+      "Local device",
+      {
+        mode: "pinned",
+        availableSkills: [],
+        loadedSkills: [],
+        pinnedSkillNames: ["excel-summary"],
+        contextText: "Loaded skill instructions:\n## excel-summary\nUse workbook APIs."
+      }
+    );
+
+    expect(prompt).toContain("HaJiMi skill context:");
+    expect(prompt).toContain("Use workbook APIs.");
   });
 });

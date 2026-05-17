@@ -38,6 +38,8 @@ import { buildAttachmentMessage, fileToPromptAttachment, type PromptAttachment }
 import { ensureModelProfiles, upsertModelProfile } from "../lib/modelProfiles";
 import { capabilityStatusLabel, summarizeCapabilities, type CapabilityCheckResult } from "../lib/capabilityCheck";
 import { buildProjectMemorySuggestion, type ProjectMemorySuggestion } from "../lib/projectMemory";
+import { buildOutputArtifacts, formatOutputArtifactHeader } from "../lib/outputArtifacts";
+import type { ManagedSkill, OfficeSkillRequest, SkillScope } from "../lib/skills";
 import {
   formatTaskElapsed,
   formatTaskStatus
@@ -49,7 +51,7 @@ import {
   failOfficeTask,
   startOfficeTask
 } from "../lib/officeTaskState";
-import ManagerSidebar, { type ManagerSection } from "./ManagerSidebar";
+import ManagerSidebar, { type ManagerSection, type SettingsTab } from "./ManagerSidebar";
 
 type Props = {
   state: PetAppState;
@@ -72,7 +74,7 @@ type Props = {
   onSwitchConversation(conversationId: string): Promise<void>;
   onDeleteConversation(conversationId: string): Promise<void>;
   onRenameConversation(conversationId: string, title: string): Promise<void>;
-  onSendOfficeMessage(message: ChatMessage, modelId?: string): Promise<void>;
+  onSendOfficeMessage(message: ChatMessage, modelId?: string, skillRequest?: OfficeSkillRequest): Promise<void>;
   onCancelMessage(): Promise<void> | void;
 };
 
@@ -120,6 +122,7 @@ export default function ManagerPage({
   onCancelMessage
 }: Props) {
   const [section, setSection] = useState<ManagerSection>("office");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [settings, setSettings] = useState(() => prepareManagerSettings(state.settings));
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<string[]>(() =>
     settings.projects.filter((project) => project.id !== settings.activeProjectId).map((project) => project.id)
@@ -128,6 +131,11 @@ export default function ManagerPage({
   const [testingModelId, setTestingModelId] = useState<string>();
   const [selectedModelId, setSelectedModelId] = useState(state.settings.activeAgentModelId || state.settings.activeChatModelId);
   const [testMessage, setTestMessage] = useState<string>();
+  const [skills, setSkills] = useState<ManagedSkill[]>([]);
+  const [selectedSkillId, setSelectedSkillId] = useState<string>();
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+  const [pinnedSkillIds, setPinnedSkillIds] = useState<string[]>([]);
+  const [skillsMessage, setSkillsMessage] = useState<string>();
   const [officeDraft, setOfficeDraft] = useState("");
   const [sendingOfficeMessage, setSendingOfficeMessage] = useState(false);
   const [pendingOfficeAttachments, setPendingOfficeAttachments] = useState<PromptAttachment[]>([]);
@@ -164,6 +172,7 @@ export default function ManagerPage({
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const permissionMenuRef = useRef<HTMLDivElement>(null);
   const targetMenuRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLFormElement>(null);
   const officeCancelRequestedRef = useRef(false);
   const activeOfficeTask = officeTask.activeTaskCard;
   const officeTaskStatus = officeTask.status;
@@ -175,6 +184,9 @@ export default function ManagerPage({
       setSelectedModelId(prepared.activeAgentModelId || prepared.models[0]?.id);
     }
   }, [selectedModelId, state.settings]);
+  useEffect(() => {
+    void refreshSkills();
+  }, []);
   useEffect(() => {
     setCollapsedProjectIds((projectIds) =>
       projectIds.filter((projectId) =>
@@ -238,6 +250,29 @@ export default function ManagerPage({
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [targetMenuOpen]);
+  useEffect(() => {
+    if (!skillMenuOpen) {
+      return;
+    }
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !composerRef.current?.contains(event.target)) {
+        setSkillMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSkillMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [skillMenuOpen]);
   useEffect(() => {
     if (!activeOfficeTask || (activeOfficeTask.phase !== "processing" && activeOfficeTask.phase !== "starting")) {
       setOfficeElapsedMs(1000);
@@ -307,6 +342,57 @@ export default function ManagerPage({
       setTestMessage(error instanceof Error ? error.message : `${model.name} 连接失败`);
     } finally {
       setTestingModelId(undefined);
+    }
+  }
+
+  async function refreshSkills() {
+    try {
+      const nextSkills = await window.petApp.listSkills();
+      setSkills(nextSkills);
+      setSelectedSkillId((current) => current && nextSkills.some((skill) => skill.id === current)
+        ? current
+        : nextSkills[0]?.id);
+      setSkillsMessage(undefined);
+    } catch (error) {
+      setSkillsMessage(readUnknownError(error));
+    }
+  }
+
+  async function importSkill() {
+    setSkillsMessage(undefined);
+    try {
+      const imported = await window.petApp.importSkillFolder();
+      await refreshSkills();
+      if (imported) {
+        setSelectedSkillId(imported.id);
+        setSkillsMessage(`已导入 ${imported.name}`);
+      }
+    } catch (error) {
+      setSkillsMessage(readUnknownError(error));
+    }
+  }
+
+  async function updateSkill(skillId: string, patch: Partial<Pick<ManagedSkill, "enabled" | "scope" | "projectPath">>) {
+    setSkillsMessage(undefined);
+    try {
+      const updatedSkill = await window.petApp.updateSkill(skillId, patch);
+      setSkills((current) => current.map((skill) => skill.id === skillId ? updatedSkill : skill));
+      setSelectedSkillId(updatedSkill.id);
+    } catch (error) {
+      setSkillsMessage(readUnknownError(error));
+    }
+  }
+
+  async function removeSkill(skillId: string) {
+    setSkillsMessage(undefined);
+    try {
+      await window.petApp.removeSkill(skillId);
+      setPinnedSkillIds((current) => current.filter((id) => id !== skillId));
+      const nextSkills = skills.filter((skill) => skill.id !== skillId);
+      setSkills(nextSkills);
+      setSelectedSkillId((selected) => selected === skillId ? nextSkills[0]?.id : selected);
+    } catch (error) {
+      setSkillsMessage(readUnknownError(error));
     }
   }
 
@@ -719,11 +805,13 @@ export default function ManagerPage({
   }
 
   async function switchConversation(conversationId: string) {
+    setSection("office");
     setSettings({ ...settings, activeConversationId: conversationId });
     await onSwitchConversation(conversationId);
   }
 
   async function switchProjectFromRail(projectId: string) {
+    setSection("office");
     setCollapsedProjectIds((projectIds) => projectIds.filter((item) => item !== projectId));
     await onSwitchProject(projectId);
   }
@@ -801,6 +889,46 @@ export default function ManagerPage({
     setTestMessage("已复制路径");
   }
 
+  function renderOutputArtifacts(message: ChatMessage) {
+    const artifacts = buildOutputArtifacts(message.fileOutputs);
+    if (!artifacts.length) {
+      return null;
+    }
+    return (
+      <section className="output-artifact-block" aria-label="生成文件">
+        <div className="output-artifact-header">{formatOutputArtifactHeader(artifacts.length)}</div>
+        <div className="output-artifact-list">
+          {artifacts.map((artifact) => (
+            <div className="output-artifact-row" key={`${artifact.file.path}-${artifact.file.size ?? 0}`} title={artifact.file.path}>
+              <div className="output-artifact-icon">
+                <Paperclip size={14} />
+              </div>
+              <div className="output-artifact-main">
+                <strong>{artifact.displayName}</strong>
+                <span>
+                  {artifact.extensionLabel}
+                  {artifact.sizeLabel ? ` · ${artifact.sizeLabel}` : ""}
+                  {artifact.locationLabel ? ` · ${artifact.locationLabel}` : ""}
+                </span>
+              </div>
+              <div className="output-artifact-actions">
+                <button type="button" title="打开文件" aria-label={`打开文件 ${artifact.displayName}`} onClick={() => void openOutputFile(artifact.file.path)}>
+                  <Download size={13} />
+                </button>
+                <button type="button" title="打开所在文件夹" aria-label={`打开所在文件夹 ${artifact.displayName}`} onClick={() => void showOutputFile(artifact.file.path)}>
+                  <FolderOpen size={13} />
+                </button>
+                <button type="button" title="复制路径" aria-label={`复制路径 ${artifact.displayName}`} onClick={() => void copyOutputPath(artifact.file.path)}>
+                  <Copy size={13} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
   function renderConversationRow(conversation: PetConversation) {
     return (
       <div
@@ -853,6 +981,23 @@ export default function ManagerPage({
     );
   }
 
+  function handleOfficeDraftChange(value: string) {
+    setOfficeDraft(value);
+    const slashQuery = readSlashSkillQuery(value);
+    setSkillMenuOpen(slashQuery !== undefined);
+    if (slashQuery === undefined) {
+      setPinnedSkillIds([]);
+    }
+  }
+
+  function selectComposerSkill(skill: ManagedSkill) {
+    const rest = removeSlashSkillPrefix(officeDraft);
+    setOfficeDraft(`/${skill.name}${rest ? ` ${rest}` : " "}`);
+    setPinnedSkillIds([skill.id]);
+    setSkillMenuOpen(false);
+    requestAnimationFrame(() => officeDraftInputRef.current?.focus());
+  }
+
   async function submitOfficeMessage(event: FormEvent) {
     event.preventDefault();
     const content = officeDraft.trim();
@@ -863,22 +1008,29 @@ export default function ManagerPage({
     const message = hasAttachments
       ? buildAttachmentMessage(content, pendingOfficeAttachments)
       : { role: "user" as const, content };
-    await sendPreparedOfficeMessage(message, undefined, hasAttachments);
+    await sendPreparedOfficeMessage(message, undefined, hasAttachments, composerSkillRequest);
   }
 
-  async function sendPreparedOfficeMessage(message: ChatMessage, modelIdOverride?: string, forceTaskCard = false) {
+  async function sendPreparedOfficeMessage(
+    message: ChatMessage,
+    modelIdOverride?: string,
+    forceTaskCard = false,
+    skillRequest?: OfficeSkillRequest
+  ) {
     if (sendingOfficeMessage) {
       return;
     }
     const taskInput = message.displayContent ?? message.content;
     setOfficeDraft("");
+    setSkillMenuOpen(false);
+    setPinnedSkillIds([]);
     setPendingOfficeAttachments([]);
     setOfficeTask((current) => startOfficeTask(current, { input: taskInput, hasAttachment: forceTaskCard }));
     setSendingOfficeMessage(true);
     setLastFailedOfficeMessage(undefined);
     officeCancelRequestedRef.current = false;
     try {
-      await onSendOfficeMessage(message, modelIdOverride);
+      await onSendOfficeMessage(message, modelIdOverride, skillRequest);
       if (officeCancelRequestedRef.current) {
         setOfficeTask((current) => cancelOfficeTask(current));
       } else {
@@ -900,7 +1052,7 @@ export default function ManagerPage({
     if (!lastFailedOfficeMessage || sendingOfficeMessage) {
       return;
     }
-    await sendPreparedOfficeMessage(lastFailedOfficeMessage, modelIdOverride);
+    await sendPreparedOfficeMessage(lastFailedOfficeMessage, modelIdOverride, false, composerSkillRequest);
   }
 
   async function cancelOfficeMessage() {
@@ -983,6 +1135,20 @@ export default function ManagerPage({
   const activeRemoteTargetLabel = activeRemoteTarget.label;
   const activeRemoteTargetDescription = activeRemoteTarget.description;
   const selectedModel = settings.models.find((model) => model.id === selectedModelId) ?? settings.models[0];
+  const selectedSkill = skills.find((skill) => skill.id === selectedSkillId);
+  const slashSkillQuery = readSlashSkillQuery(officeDraft);
+  const enabledSkills = skills.filter((skill) => skill.enabled);
+  const filteredSlashSkills = slashSkillQuery === undefined
+    ? []
+    : enabledSkills
+      .filter((skill) => (
+        skill.name.toLowerCase().includes(slashSkillQuery.toLowerCase()) ||
+        skill.description.toLowerCase().includes(slashSkillQuery.toLowerCase())
+      ))
+      .slice(0, 8);
+  const composerSkillRequest: OfficeSkillRequest = pinnedSkillIds.length
+    ? { mode: "pinned", pinnedSkillIds }
+    : { mode: "auto", pinnedSkillIds: [] };
   const activeOfficeTaskElapsedMs = activeOfficeTask
     ? activeOfficeTask.phase === "processing" || activeOfficeTask.phase === "starting"
       ? officeElapsedMs
@@ -1035,6 +1201,7 @@ export default function ManagerPage({
         projectName={projectName}
         visibleConversations={visibleConversations}
         collapsedProjectIds={collapsedProjectIds}
+        settingsTab={settingsTab}
         renderConversationRow={renderConversationRow}
         onChooseWorkspace={chooseWorkspace}
         onCreateConversation={onCreateConversation}
@@ -1042,6 +1209,7 @@ export default function ManagerPage({
         onDeleteProject={onDeleteProject}
         onToggleProjectCollapsed={toggleProjectCollapsed}
         onSectionChange={setSection}
+        onSettingsTabChange={setSettingsTab}
       />
 
       {section === "office" && (
@@ -1089,27 +1257,16 @@ export default function ManagerPage({
                   <span className="codex-message-meta">{formatProcessingTime(message.durationMs)}</span>
                 )}
                 <p>{message.displayContent ?? message.content}</p>
-                {message.fileOutputs?.length ? (
-                  <div className="composer-output-files">
-                    {message.fileOutputs.map((file) => (
-                      <span className="composer-output-file" key={`${file.path}-${file.size ?? 0}`} title={file.path}>
-                        <Paperclip size={12} />
-                        <span>{file.name || file.path}</span>
-                        <span className="output-file-actions">
-                          <button type="button" title="打开文件" aria-label={`打开文件 ${file.name || file.path}`} onClick={() => void openOutputFile(file.path)}>
-                            <Download size={12} />
-                          </button>
-                          <button type="button" title="打开所在文件夹" aria-label={`打开所在文件夹 ${file.name || file.path}`} onClick={() => void showOutputFile(file.path)}>
-                            <FolderOpen size={12} />
-                          </button>
-                          <button type="button" title="复制路径" aria-label={`复制路径 ${file.name || file.path}`} onClick={() => void copyOutputPath(file.path)}>
-                            <Copy size={12} />
-                          </button>
-                        </span>
-                      </span>
+                {message.notices?.length ? (
+                  <div className="message-notice-list">
+                    {message.notices.map((notice, noticeIndex) => (
+                      <p className={`message-notice ${notice.tone}`} key={`${notice.tone}-${noticeIndex}`}>
+                        {notice.text}
+                      </p>
                     ))}
                   </div>
                 ) : null}
+                {message.role === "assistant" ? renderOutputArtifacts(message) : null}
                   </article>
                   <div className="message-action-row">
                   <button type="button" title="复制" aria-label="复制消息" onClick={() => void copyOfficeMessage(message)}>
@@ -1188,6 +1345,7 @@ export default function ManagerPage({
           </div>
 
           <form
+            ref={composerRef}
             className={officeDragActive ? "codex-composer composer-drop-active" : "codex-composer"}
             onSubmit={submitOfficeMessage}
           >
@@ -1204,12 +1362,27 @@ export default function ManagerPage({
                 ))}
               </div>
             )}
+            {skillMenuOpen && filteredSlashSkills.length > 0 && (
+              <div className="composer-skill-menu">
+                {filteredSlashSkills.map((skill) => (
+                  <button
+                    className="composer-skill-option"
+                    key={skill.id}
+                    type="button"
+                    onClick={() => selectComposerSkill(skill)}
+                  >
+                    <span>/{skill.name}</span>
+                    <small>{skill.description}</small>
+                  </button>
+                ))}
+              </div>
+            )}
             <input
               ref={officeDraftInputRef}
               value={officeDraft}
               disabled={sendingOfficeMessage}
               placeholder={sendingOfficeMessage ? "发送中..." : "要求后续变更"}
-              onChange={(event) => setOfficeDraft(event.target.value)}
+              onChange={(event) => handleOfficeDraftChange(event.target.value)}
             />
             <div className="codex-composer-toolbar">
               <input
@@ -1520,7 +1693,7 @@ export default function ManagerPage({
         </section>
       )}
 
-      {section === "models" && (
+      {section === "settings" && settingsTab === "models" && (
         <section className="codex-config-main">
           <header className="codex-config-header">
             <div>
@@ -1604,7 +1777,113 @@ export default function ManagerPage({
         </section>
       )}
 
-      {section === "channels" && (
+      {section === "settings" && settingsTab === "skills" && (
+        <section className="codex-config-main">
+          <header className="codex-config-header">
+            <div>
+              <p className="eyebrow">HaJiMi</p>
+              <h1>Skills</h1>
+              <p>导入和管理可被办公模型调用的技能。输入框里用 /技能名 可以临时指定本次任务。</p>
+            </div>
+            <button className="primary-command" onClick={() => void importSkill()}>
+              <Download size={18} />
+              导入 Skill
+            </button>
+          </header>
+          <div className="skill-manager-layout">
+            <aside className="skill-index-panel">
+              <div className="model-index-heading">
+                <span>技能列表</span>
+                <button title="刷新 Skills" onClick={() => void refreshSkills()}>
+                  <RefreshCw size={15} />
+                </button>
+              </div>
+              <div className="skill-index-list">
+                {skills.length === 0 ? (
+                  <p className="manager-note">还没有导入 Skill。选择包含 SKILL.md 的文件夹即可添加。</p>
+                ) : skills.map((skill) => (
+                  <button
+                    className={skill.id === selectedSkill?.id ? "skill-index-row active" : "skill-index-row"}
+                    key={skill.id}
+                    onClick={() => setSelectedSkillId(skill.id)}
+                  >
+                    <strong>/{skill.name}</strong>
+                    <span>{skill.enabled ? "已启用" : "已停用"} · {skill.scope === "project" ? "当前项目" : "全局"}</span>
+                    <small>{skill.description}</small>
+                  </button>
+                ))}
+              </div>
+            </aside>
+
+            {selectedSkill ? (
+              <div className="skill-detail-card">
+                <div className="skill-card-title">
+                  <div>
+                    <strong>/{selectedSkill.name}</strong>
+                    <small>{selectedSkill.source} · {selectedSkill.id}</small>
+                  </div>
+                  <button title="删除 Skill" onClick={() => void removeSkill(selectedSkill.id)}>
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+                <p className="skill-detail-preview">{selectedSkill.description}</p>
+                <label className="manager-toggle">
+                  <span>启用</span>
+                  <input
+                    type="checkbox"
+                    checked={selectedSkill.enabled}
+                    onChange={(event) => void updateSkill(selectedSkill.id, { enabled: event.target.checked })}
+                  />
+                </label>
+                <label>
+                  作用范围
+                  <select
+                    value={selectedSkill.scope}
+                    onChange={(event) => {
+                      const scope = event.target.value as SkillScope;
+                      void updateSkill(selectedSkill.id, {
+                        scope,
+                        projectPath: scope === "project" ? settings.agent.workspaceDir : undefined
+                      });
+                    }}
+                  >
+                    <option value="global">全局可用</option>
+                    <option value="project">仅当前项目</option>
+                  </select>
+                </label>
+                {selectedSkill.scope === "project" && (
+                  <label>
+                    项目路径
+                    <input
+                      value={selectedSkill.projectPath ?? settings.agent.workspaceDir}
+                      onChange={(event) => void updateSkill(selectedSkill.id, { projectPath: event.target.value })}
+                    />
+                  </label>
+                )}
+                <label>
+                  技能文件
+                  <input value={selectedSkill.path} readOnly />
+                </label>
+                {selectedSkill.warnings.length > 0 && (
+                  <div className="skill-warning-list">
+                    {selectedSkill.warnings.map((warning) => (
+                      <p key={warning}>{warning}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="skill-detail-card empty">
+                <Sparkles size={34} />
+                <p>选择一个 Skill 查看详情。</p>
+              </div>
+            )}
+          </div>
+          {skillsMessage && <p className="save-state">{skillsMessage}</p>}
+        </section>
+      )}
+
+      {section === "settings" && settingsTab === "channels" && (
         <section className="codex-config-main">
           <header className="codex-config-header">
             <div>
@@ -1733,12 +2012,12 @@ export default function ManagerPage({
         </section>
       )}
 
-      {section === "system" && (
+      {section === "settings" && settingsTab === "general" && (
         <section className="codex-config-main">
           <header className="codex-config-header">
             <div>
-              <p className="eyebrow">哈基Mi</p>
-              <h1>系统</h1>
+              <p className="eyebrow">HaJiMi 设置</p>
+              <h1>常规</h1>
             </div>
           </header>
           <div className="manager-grid">
@@ -2159,6 +2438,19 @@ async function writeClipboard(text: string) {
   element.select();
   document.execCommand("copy");
   element.remove();
+}
+
+function readSlashSkillQuery(text: string): string | undefined {
+  const trimmed = text.trimStart();
+  if (!trimmed.startsWith("/")) {
+    return undefined;
+  }
+  const match = trimmed.match(/^\/([^\s/]*)/u);
+  return match ? match[1] : "";
+}
+
+function removeSlashSkillPrefix(text: string): string {
+  return text.trimStart().replace(/^\/[^\s/]*\s*/u, "").trim();
 }
 
 function formatProcessingTime(durationMs: number): string {

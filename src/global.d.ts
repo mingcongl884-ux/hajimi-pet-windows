@@ -12,6 +12,8 @@ import type { PetMoveCommand } from "./lib/petMotion";
 import type { PetAction } from "./lib/petActions";
 import type { PetControlKey } from "./lib/petKeyboardControl";
 import type { InstalledPet } from "./lib/petTypes";
+import type { ManagedSkill, OfficeSkillRequest } from "./lib/skills";
+import type { SkillUpdatePatch } from "../electron/skillStore";
 
 export type PetAppState = {
   settings: AppSettings;
@@ -66,7 +68,8 @@ declare global {
       stopChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
       testChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
       sendChat(messages: ChatMessage[], modelId?: string, requestId?: string): Promise<ChatResponse>;
-      runAgentTask(task: string, modelId?: string, requestId?: string): Promise<ChatResponse>;
+      runAgentTask(task: string, modelId?: string, requestId?: string, skillRequest?: OfficeSkillRequest): Promise<ChatResponse>;
+      emitExternalPetActions(actions: PetAction[]): Promise<void>;
       cancelChatTask(requestId: string): Promise<boolean>;
       heartbeatGreeting(prompt: string): Promise<ChatResponse>;
       testModel(model: ModelProfile): Promise<string>;
@@ -81,6 +84,10 @@ declare global {
       chooseWorkspace(): Promise<PetAppState>;
       switchProject(projectId: string): Promise<PetAppState>;
       deleteProject(projectId: string): Promise<PetAppState>;
+      listSkills(): Promise<ManagedSkill[]>;
+      importSkillFolder(): Promise<ManagedSkill | undefined>;
+      updateSkill(skillId: string, patch: SkillUpdatePatch): Promise<ManagedSkill>;
+      removeSkill(skillId: string): Promise<void>;
       getProjectMemory(projectId: string): Promise<ProjectMemory | undefined>;
       updateProjectMemory(update: ProjectMemoryUpdate): Promise<ProjectMemory>;
       openOutputFile(path: string): Promise<void>;

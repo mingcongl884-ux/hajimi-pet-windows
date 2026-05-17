@@ -24,6 +24,7 @@ import { restoreChannelAdapter, startChannelAdapter, stopChannelAdapter, testCha
 import type { ChannelProvider } from "../src/lib/channels.js";
 import type { ChannelMessage } from "../src/lib/channelRouter.js";
 import type { ChatMessage } from "./chatClient.js";
+import { normalizeOfficeErrorMessage } from "./officeErrors.js";
 import type { CapabilityRepairActionId, CapabilityRepairResult } from "../src/lib/capabilityCheck.js";
 import type { PetAction } from "../src/lib/petActions.js";
 import {
@@ -44,6 +45,8 @@ import { PET_WINDOW_SIZE, clampPetWindowPosition, getPetVisibleRect } from "../s
 import { removeProject, switchProject, upsertProject } from "../src/lib/projects.js";
 import { startWeixinMessageBridge, type WeixinMessageBridgeStop, type WeixinMessageReply } from "./weixinMessageBridge.js";
 import { ProjectMemoryStore } from "./projectMemoryStore.js";
+import { SkillStore, type SkillUpdatePatch } from "./skillStore.js";
+import type { OfficeSkillRequest, ResolvedSkillContext } from "../src/lib/skills.js";
 import type { ProjectMemoryUpdate } from "../src/lib/projectMemory.js";
 import { startRemoteBridgeHost, type RemoteBridgeHostController } from "./remoteBridgeHost.js";
 import { buildRemoteBridgeHttpMcpServerConfig, callRemoteBridgeTool } from "./remoteBridgeClient.js";
@@ -65,6 +68,7 @@ let managerWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let settingsStore: SettingsStore;
 let projectMemoryStore: ProjectMemoryStore | undefined;
+let skillStore: SkillStore | undefined;
 const lastPositionSaveBySlot = new Map<number, number>();
 let isQuitting = false;
 let petPlayInterval: NodeJS.Timeout | undefined;
@@ -122,6 +126,7 @@ async function createWindows() {
   app.setAppUserModelId("com.codex.xiaomipet");
   settingsStore = new SettingsStore(app.getPath("userData"), safeStorage);
   projectMemoryStore = new ProjectMemoryStore(app.getPath("userData"));
+  skillStore = new SkillStore(app.getPath("userData"));
   await ensureBundledPet();
   registerPetAssetProtocol();
   const settings = await settingsStore.loadSettings();
@@ -434,16 +439,28 @@ function registerIpc() {
       task.finish();
     }
   });
-  ipcMain.handle("pet:run-agent-task", async (_event, taskPrompt: string, modelId?: string, requestId?: string) => {
+  ipcMain.handle("pet:run-agent-task", async (
+    _event,
+    taskPrompt: string,
+    modelId?: string,
+    requestId?: string,
+    skillRequest?: OfficeSkillRequest
+  ) => {
     const task = createCancellableChatTask(requestId);
     const settings = await settingsStore.loadSettings();
     const model = getModelSettingsById(settings, modelId, "agent");
     const remoteHost = resolveActiveRemoteBridgeHost(settings);
     try {
-      return await runRemoteBridgeAgentTask(task.fetchImpl, model, settings.agent, taskPrompt, task.controller, remoteHost);
+      const skillContext = await buildOfficeSkillContext(settings, taskPrompt, skillRequest);
+      return await runRemoteBridgeAgentTask(task.fetchImpl, model, settings.agent, taskPrompt, task.controller, remoteHost, skillContext);
+    } catch (error) {
+      throw new Error(normalizeOfficeErrorMessage(error));
     } finally {
       task.finish();
     }
+  });
+  ipcMain.handle("pet:emit-external-actions", (_event, actions: PetAction[]) => {
+    broadcastExternalPetActions(actions);
   });
   ipcMain.handle("pet:heartbeat-greeting", async (_event, prompt: string) => {
     const settings = await settingsStore.loadSettings();
@@ -511,6 +528,12 @@ function registerIpc() {
     await settingsStore.saveSettings(removeProject(settings, projectId));
     return broadcastState();
   });
+  ipcMain.handle("pet:list-skills", () => getSkillStore().listSkills());
+  ipcMain.handle("pet:import-skill-folder", () => importSkillFromDialog());
+  ipcMain.handle("pet:update-skill", (_event, skillId: string, patch: SkillUpdatePatch) =>
+    getSkillStore().updateSkill(skillId, patch)
+  );
+  ipcMain.handle("pet:remove-skill", (_event, skillId: string) => getSkillStore().removeSkill(skillId));
   ipcMain.handle("pet:get-project-memory", async (_event, projectId: string) =>
     getProjectMemoryStore().getMemory(projectId)
   );
@@ -558,13 +581,15 @@ async function runOrdinaryOfficeTask(
   agent: AppSettings["agent"],
   taskPrompt: string,
   controller?: AbortController,
-  remoteHost?: RemoteKnownHost
+  remoteHost?: RemoteKnownHost,
+  skillContext?: ResolvedSkillContext
 ) {
   if (remoteHost?.transport === "relay") {
     const { runAgentTask } = await import("./agentClient.js");
     return runAgentTask(fetchImpl, model, agent, taskPrompt, controller?.signal, {
       executionContext: describeExecutionTarget(remoteHost),
-      remoteToolExecutor: (tool, args) => callRemoteBridgeTool(remoteHost, { tool, args })
+      remoteToolExecutor: (tool, args) => callRemoteBridgeTool(remoteHost, { tool, args }),
+      skillContext
     });
   }
 
@@ -573,7 +598,8 @@ async function runOrdinaryOfficeTask(
     return await runOpenClawAgentTask(model, agent, taskPrompt, {
       stateDir: join(app.getPath("userData"), "openclaw-office"),
       signal: controller?.signal,
-      remoteBridgeHost: remoteHost
+      remoteBridgeHost: remoteHost,
+      skillContext
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -582,12 +608,20 @@ async function runOrdinaryOfficeTask(
     }
     await writeRuntimeLog(`openclaw ordinary office unavailable; falling back to legacy agent: ${message}`);
     const { runAgentTask } = await import("./agentClient.js");
-    return runAgentTask(fetchImpl, model, agent, taskPrompt, controller?.signal, {
+    const response = await runAgentTask(fetchImpl, model, agent, taskPrompt, controller?.signal, {
       executionContext: describeExecutionTarget(remoteHost),
       remoteToolExecutor: remoteHost
         ? (tool, args) => callRemoteBridgeTool(remoteHost, { tool, args })
-        : undefined
+        : undefined,
+      skillContext
     });
+    return {
+      ...response,
+      notices: [
+        ...(response.notices ?? []),
+        { tone: "warning" as const, text: "OpenClaw 暂不可用，已切换到兼容兜底处理。" }
+      ]
+    };
   }
 }
 
@@ -708,12 +742,14 @@ async function runClaudeOfficeTask(
   agent: AppSettings["agent"],
   taskPrompt: string,
   controller?: AbortController,
-  remoteHost?: RemoteKnownHost
+  remoteHost?: RemoteKnownHost,
+  skillContext?: ResolvedSkillContext
 ) {
   const { runClaudeAgentTask } = await import("./claudeAgentClient.js");
   return runClaudeAgentTask(model, agent, taskPrompt, {
     abortController: controller,
     executionContext: describeExecutionTarget(remoteHost),
+    skillContext,
     ...(remoteHost ? {
       mcpServers: {
         "hajimi-remote-bridge": buildRemoteBridgeHttpMcpServerConfig(remoteHost)
@@ -733,11 +769,28 @@ async function runRemoteBridgeAgentTask(
   agent: AppSettings["agent"],
   taskPrompt: string,
   controller?: AbortController,
-  remoteHost?: RemoteKnownHost
+  remoteHost?: RemoteKnownHost,
+  skillContext?: ResolvedSkillContext
 ) {
   return model.provider === "claude-agent"
-    ? runClaudeOfficeTask(model, agent, taskPrompt, controller, remoteHost)
-    : runOrdinaryOfficeTask(fetchImpl, model, agent, taskPrompt, controller, remoteHost);
+    ? runClaudeOfficeTask(model, agent, taskPrompt, controller, remoteHost, skillContext)
+    : runOrdinaryOfficeTask(fetchImpl, model, agent, taskPrompt, controller, remoteHost, skillContext);
+}
+
+async function buildOfficeSkillContext(
+  settings: AppSettings,
+  taskPrompt: string,
+  skillRequest?: OfficeSkillRequest
+): Promise<ResolvedSkillContext> {
+  const { resolveOfficeSkillContext } = await import("./skillContext.js");
+  return resolveOfficeSkillContext({
+    skills: await getSkillStore().listSkills(),
+    task: taskPrompt,
+    projectPath: settings.agent.workspaceDir,
+    mode: skillRequest?.mode ?? "auto",
+    pinnedSkillIds: skillRequest?.pinnedSkillIds ?? [],
+    readBody: (skill) => getSkillStore().readSkillBody(skill)
+  });
 }
 
 function resolveActiveRemoteBridgeHost(settings: AppSettings): RemoteKnownHost | undefined {
@@ -823,6 +876,28 @@ async function chooseWorkspaceFromDialog() {
   return broadcastState();
 }
 
+async function importSkillFromDialog() {
+  const dialogOptions: OpenDialogOptions = {
+    title: "导入技能",
+    properties: ["openDirectory"]
+  };
+  const parent = managerWindow && !managerWindow.isDestroyed() ? managerWindow : primaryPetWindow();
+  const result = parent
+    ? await dialog.showOpenDialog(parent, dialogOptions)
+    : await dialog.showOpenDialog(dialogOptions);
+  if (result.canceled || !result.filePaths[0]) {
+    return undefined;
+  }
+  return getSkillStore().importSkillFolder(result.filePaths[0]);
+}
+
+function getSkillStore() {
+  if (!skillStore) {
+    skillStore = new SkillStore(app.getPath("userData"));
+  }
+  return skillStore;
+}
+
 async function resolveOutputFilePath(filePath: string) {
   const trimmedPath = typeof filePath === "string" ? filePath.trim() : "";
   if (!trimmedPath) {
@@ -832,7 +907,13 @@ async function resolveOutputFilePath(filePath: string) {
   const workspaceDir = settings.agent.workspaceDir.trim();
   const desktopDir = app.getPath("desktop");
   const baseDir = workspaceDir || desktopDir;
-  const resolvedPath = isAbsolute(trimmedPath) ? resolve(trimmedPath) : resolve(baseDir, trimmedPath);
+  const normalizedRelative = trimmedPath.replace(/\\/g, "/");
+  const desktopMatch = normalizedRelative.match(/^(?:desktop|桌面)\/(.+)/i);
+  const resolvedPath = isAbsolute(trimmedPath)
+    ? resolve(trimmedPath)
+    : desktopMatch
+      ? resolve(desktopDir, desktopMatch[1])
+      : resolve(baseDir, trimmedPath);
   const allowedRoots = [workspaceDir, desktopDir]
     .filter((root): root is string => Boolean(root))
     .map((root) => resolve(root));

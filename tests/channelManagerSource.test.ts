@@ -8,7 +8,9 @@ const appSource = readFileSync(join(process.cwd(), "src", "App.tsx"), "utf8");
 
 describe("channel manager page", () => {
   it("adds a channel page with Feishu and WeChat controls", () => {
-    expect(sidebarSource).toContain('type ManagerSection = "office" | "pets" | "models" | "channels" | "system"');
+    expect(sidebarSource).toContain('type ManagerSection = "office" | "pets" | "settings"');
+    expect(sidebarSource).toContain('type SettingsTab = "general" | "models" | "skills" | "channels"');
+    expect(sidebarSource).toContain("settings-sidebar-nav");
     expect(sidebarSource).toContain('label: "通道"');
     expect(managerSource).toContain("飞书机器人");
     expect(managerSource).toContain("微信插件");

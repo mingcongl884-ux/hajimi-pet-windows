@@ -30,6 +30,9 @@ import { formatFocusCompanionDoneBubble, resolveFocusCompanionIntent } from "./l
 import { evolvePetMood, moodToAnimation, pickMoodBubble, type PetExperienceMood } from "./lib/petMood";
 import { formatUpdateAnnouncement } from "./lib/updateAnnouncement";
 import { extractMemoryFilesFromDisplay } from "./lib/projectMemory";
+import { readDisplayErrorMessage } from "./lib/errorMessage";
+import { buildOfficePetFeedbackActions, type OfficePetFeedbackEvent, type OfficePetFeedbackOptions } from "./lib/officePetFeedback";
+import type { OfficeSkillRequest } from "./lib/skills";
 import { usePetRuntimeEffects } from "./hooks/usePetRuntimeEffects";
 import type { AppMode, BubbleState } from "./types/petUi";
 
@@ -53,6 +56,8 @@ export default function App() {
   const networkCheckStartedRef = useRef(false);
   const mousePassthroughRef = useRef<boolean>();
   const petActionStatusTimeoutRef = useRef<number>();
+  const officeLongCueTimeoutRef = useRef<number>();
+  const officeLongCueCountRef = useRef(0);
   const focusCompanionTimerRef = useRef<number>();
   const petMoodRef = useRef<PetExperienceMood>("idle");
 
@@ -323,7 +328,7 @@ export default function App() {
     return /已停止|cancel|abort/i.test(message);
   }
 
-  async function sendOfficeMessage(input: string | ChatMessage, modelIdOverride?: string) {
+  async function sendOfficeMessage(input: string | ChatMessage, modelIdOverride?: string, skillRequest?: OfficeSkillRequest) {
     const userMessage = normalizeUserMessage(input);
     const content = userMessage.content;
     if (!state || !activeConversation || !content.trim()) {
@@ -357,11 +362,15 @@ export default function App() {
     busyRef.current = true;
     setSending(true);
     const startedAt = Date.now();
+    if (requestUsesWorkAgent) {
+      await dispatchOfficePetFeedback("started");
+      scheduleOfficeLongFeedback(requestId);
+    }
 
     try {
       const requestMessages = [...activeConversation.messages, userMessage];
       const response = requestUsesWorkAgent
-        ? await window.petApp.runAgentTask(content.trim(), requestModelId, requestId)
+        ? await window.petApp.runAgentTask(content.trim(), requestModelId, requestId, skillRequest)
         : await window.petApp.sendChat(requestMessages, requestModelId, requestId);
       const responseWithDuration = { ...response, durationMs: Date.now() - startedAt };
       const labelledResponse = labelPetResponse(responseWithDuration, displayName, state.settings.activePetIds.length > 1);
@@ -385,24 +394,45 @@ export default function App() {
       }
       busyRef.current = false;
       const petActions = response.petActions ?? [];
-      await applyPetActions(petActions, responseSettings);
-      updatePetMood(requestUsesWorkAgent ? "taskCompleted" : "userReturned");
-      if (!petActions.some((action) => action.type === "say")) {
-        showBubble(labelledResponse.content, "info");
-      }
-      if (!petActions.some((action) => action.type === "jump" || action.type === "runAround" || action.type === "mood" || action.type === "moveToEdge" || action.type === "moveTo" || action.type === "setMovement" || action.type === "stopMovement")) {
-        setTimedPetStatus("waving", 900);
+      await dispatchPetActions(petActions, responseSettings);
+      if (requestUsesWorkAgent) {
+        if (!petActions.some((action) => action.type === "say")) {
+          await dispatchOfficePetFeedback("completed", {
+            fileOutputs: labelledResponse.fileOutputs,
+            remoteTarget: state.settings.remoteBridge.activeTargetId !== "local" && Boolean(state.settings.remoteBridge.activeTargetId)
+          });
+        }
+      } else {
+        updatePetMood("userReturned");
+        if (!petActions.some((action) => action.type === "say")) {
+          showBubble(labelledResponse.content, "info");
+        }
+        if (!petActions.some((action) => action.type === "jump" || action.type === "runAround" || action.type === "mood" || action.type === "moveToEdge" || action.type === "moveTo" || action.type === "setMovement" || action.type === "stopMovement")) {
+          setTimedPetStatus("waving", 900);
+        }
       }
     } catch (err) {
       if (isCancelledChatError(err)) {
-        setTimedPetStatus("idle", 0);
+        if (requestUsesWorkAgent) {
+          await dispatchOfficePetFeedback("cancelled");
+        } else {
+          setTimedPetStatus("idle", 0);
+        }
         return;
       }
-      setTimedPetStatus("failed", 1200);
-      setError(readErrorMessage(err));
-      showBubble(readErrorMessage(err), "info");
-      throw err;
+      const displayError = readErrorMessage(err);
+      if (requestUsesWorkAgent) {
+        await dispatchOfficePetFeedback("failed");
+      } else {
+        setTimedPetStatus("failed", 1200);
+      }
+      setError(displayError);
+      if (!requestUsesWorkAgent) {
+        showBubble(displayError, "info");
+      }
+      throw new Error(displayError);
     } finally {
+      clearOfficeLongFeedback();
       finishChatRequest(requestId);
     }
   }
@@ -646,6 +676,42 @@ export default function App() {
     }
   }
 
+  async function dispatchPetActions(actions: PetAction[], baseSettings = state?.settings) {
+    if (!actions.length) {
+      return;
+    }
+    if (mode === "manager") {
+      await window.petApp.emitExternalPetActions(actions);
+      return;
+    }
+    await applyPetActions(actions, baseSettings);
+  }
+
+  async function dispatchOfficePetFeedback(event: OfficePetFeedbackEvent, options?: OfficePetFeedbackOptions) {
+    await dispatchPetActions(buildOfficePetFeedbackActions(event, options));
+  }
+
+  function scheduleOfficeLongFeedback(requestId: string) {
+    clearOfficeLongFeedback();
+    officeLongCueCountRef.current = 0;
+    const tick = () => {
+      if (activeRequestIdRef.current !== requestId || !busyRef.current || officeLongCueCountRef.current >= 3) {
+        return;
+      }
+      officeLongCueCountRef.current += 1;
+      void dispatchOfficePetFeedback("long-running");
+      officeLongCueTimeoutRef.current = window.setTimeout(tick, 120_000);
+    };
+    officeLongCueTimeoutRef.current = window.setTimeout(tick, 45_000);
+  }
+
+  function clearOfficeLongFeedback() {
+    if (officeLongCueTimeoutRef.current) {
+      window.clearTimeout(officeLongCueTimeoutRef.current);
+      officeLongCueTimeoutRef.current = undefined;
+    }
+  }
+
   function markInteraction() {
     lastInteractionRef.current = Date.now();
   }
@@ -739,10 +805,7 @@ function readMode(): AppMode {
 }
 
 function readErrorMessage(error: unknown): string {
-  if (error && typeof error === "object" && "message" in error) {
-    return String((error as { message: unknown }).message);
-  }
-  return "聊天请求失败";
+  return readDisplayErrorMessage(error, "聊天请求失败");
 }
 
 function labelPetResponse(response: ChatMessage, displayName: string, enabled: boolean): ChatMessage {

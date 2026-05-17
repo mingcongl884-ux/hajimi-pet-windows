@@ -1,6 +1,14 @@
 {
   "notices": [
     {
+      "id": "2026-05-17-settings-skills",
+      "title": "HaJiMi 0.1.53 设置分页与 Skills",
+      "message": "本版把办公区作为默认主界面，侧边栏只保留宠物和设置；模型、Skills、通道和系统选项统一收进设置分页。同时补上 Skills 管理和 / 调用入口，让办公任务更像 Codex 一样自然流转。",
+      "version": "0.1.53",
+      "publishedAt": "2026-05-17T13:15:00.000Z",
+      "url": "https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/tag/v0.1.53"
+    },
+    {
       "id": "2026-05-17-remote-cloud-relay",
       "title": "HaJiMi 0.1.52 云中转桥接",
       "message": "新增跨电脑云中转桥接：另一台哈吉Mi 可以在授权后通过当前电脑执行文件、命令和办公工具。也保留局域网发现和手动直连。",

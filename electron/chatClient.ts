@@ -7,6 +7,7 @@ export type ChatMessage = {
   content: string;
   displayContent?: string;
   durationMs?: number;
+  notices?: ChatNotice[];
   fileOutputs?: ChatFileOutput[];
 };
 
@@ -27,8 +28,14 @@ export type ChatResponse = {
   role: "assistant";
   content: string;
   durationMs?: number;
+  notices?: ChatNotice[];
   petActions?: PetAction[];
   fileOutputs?: ChatFileOutput[];
+};
+
+export type ChatNotice = {
+  tone: "info" | "warning" | "error";
+  text: string;
 };
 
 export class ChatClientError extends Error {

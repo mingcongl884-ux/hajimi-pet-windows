@@ -56,7 +56,7 @@ describe("manager office workspace source", () => {
     expect(appSource).toContain('const modeForRequest: PetConversationMode = requestUsesWorkAgent ? "agent" : "chat"');
     expect(appSource).toContain("const response = requestUsesWorkAgent");
     expect(appSource).toContain("modelIdOverride");
-    expect(appSource).toContain("applyPetActions(petActions, responseSettings)");
+    expect(appSource).toContain("dispatchPetActions(petActions, responseSettings)");
     expect(appSource).toContain("throw new Error(workspaceMessage)");
     expect(managerSource).toContain("messageListRef");
     expect(managerSource).toContain("sendingOfficeMessage");

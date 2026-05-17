@@ -9,6 +9,8 @@ import type { PetMoveCommand } from "../src/lib/petMotion.js";
 import type { PetPlayCommand } from "../src/lib/petPlay.js";
 import type { PetAction } from "../src/lib/petActions.js";
 import type { PetControlKey } from "../src/lib/petKeyboardControl.js";
+import type { ManagedSkill, OfficeSkillRequest } from "../src/lib/skills.js";
+import type { SkillUpdatePatch } from "./skillStore.js";
 
 const petSlot = Number(new URLSearchParams(globalThis.location.search).get("slot") ?? "0");
 
@@ -27,7 +29,9 @@ contextBridge.exposeInMainWorld("petApp", {
   stopChannel: (provider: ChannelProvider) => ipcRenderer.invoke("pet:stop-channel", provider),
   testChannel: (provider: ChannelProvider) => ipcRenderer.invoke("pet:test-channel", provider),
   sendChat: (messages: ChatMessage[], modelId?: string, requestId?: string) => ipcRenderer.invoke("pet:send-chat", messages, modelId, requestId),
-  runAgentTask: (task: string, modelId?: string, requestId?: string) => ipcRenderer.invoke("pet:run-agent-task", task, modelId, requestId),
+  runAgentTask: (task: string, modelId?: string, requestId?: string, skillRequest?: OfficeSkillRequest) =>
+    ipcRenderer.invoke("pet:run-agent-task", task, modelId, requestId, skillRequest),
+  emitExternalPetActions: (actions: PetAction[]) => ipcRenderer.invoke("pet:emit-external-actions", actions),
   cancelChatTask: (requestId: string) => ipcRenderer.invoke("pet:cancel-chat-task", requestId),
   heartbeatGreeting: (prompt: string) => ipcRenderer.invoke("pet:heartbeat-greeting", prompt),
   testModel: (model: ModelProfile) => ipcRenderer.invoke("pet:test-model", model),
@@ -43,6 +47,10 @@ contextBridge.exposeInMainWorld("petApp", {
   chooseWorkspace: () => ipcRenderer.invoke("pet:choose-workspace"),
   switchProject: (projectId: string) => ipcRenderer.invoke("pet:switch-project", projectId),
   deleteProject: (projectId: string) => ipcRenderer.invoke("pet:delete-project", projectId),
+  listSkills: (): Promise<ManagedSkill[]> => ipcRenderer.invoke("pet:list-skills"),
+  importSkillFolder: (): Promise<ManagedSkill | undefined> => ipcRenderer.invoke("pet:import-skill-folder"),
+  updateSkill: (skillId: string, patch: SkillUpdatePatch): Promise<ManagedSkill> => ipcRenderer.invoke("pet:update-skill", skillId, patch),
+  removeSkill: (skillId: string): Promise<void> => ipcRenderer.invoke("pet:remove-skill", skillId),
   getProjectMemory: (projectId: string): Promise<ProjectMemory | undefined> => ipcRenderer.invoke("pet:get-project-memory", projectId),
   updateProjectMemory: (update: ProjectMemoryUpdate): Promise<ProjectMemory> => ipcRenderer.invoke("pet:update-project-memory", update),
   openOutputFile: (path: string) => ipcRenderer.invoke("pet:open-output-file", path),

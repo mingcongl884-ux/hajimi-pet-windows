@@ -1,14 +1,15 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import type { ChatApiSettings, ChatResponse } from "./chatClient.js";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import type { ChatApiSettings, ChatFileOutput, ChatResponse } from "./chatClient.js";
 import { ChatClientError } from "./chatClient.js";
 import type { AgentSettings } from "./settingsStore.js";
 import { buildRemoteBridgeOpenClawMcpServerConfig } from "./remoteBridgeClient.js";
 import type { RemoteKnownHost } from "../src/lib/remoteBridge.js";
+import type { ResolvedSkillContext } from "../src/lib/skills.js";
 
 const require = createRequire(import.meta.url);
 const OPENCLAW_API_KEY_ENV = "HAJIMI_OPENCLAW_API_KEY";
@@ -97,6 +98,7 @@ type RunOpenClawAgentOptions = {
   spawnImpl?: SpawnImpl;
   signal?: AbortSignal;
   remoteBridgeHost?: RemoteKnownHost;
+  skillContext?: ResolvedSkillContext;
 };
 
 export async function runOpenClawAgentTask(
@@ -115,7 +117,7 @@ export async function runOpenClawAgentTask(
   const stateDir = options.stateDir ?? join(defaultUserDataDir(), "openclaw-office");
   await mkdir(stateDir, { recursive: true });
   const configPath = join(stateDir, "openclaw.json");
-  await writeFile(configPath, `${JSON.stringify(buildOpenClawConfig(api, agent, options.remoteBridgeHost), null, 2)}\n`, "utf8");
+  await writeFile(configPath, `${JSON.stringify(buildOpenClawConfig(api, agent, options.remoteBridgeHost, options.skillContext), null, 2)}\n`, "utf8");
 
   const cliPath = options.openClawCli ?? resolveBundledOpenClawCli();
   if (!cliPath) {
@@ -158,10 +160,15 @@ export async function runOpenClawAgentTask(
     );
   }
 
-  return parseOpenClawAgentOutput(result.output);
+  return parseOpenClawAgentOutput(result.output, agent.workspaceDir);
 }
 
-export function buildOpenClawConfig(api: ChatApiSettings, agent: AgentSettings, remoteBridgeHost?: RemoteKnownHost): OpenClawConfig {
+export function buildOpenClawConfig(
+  api: ChatApiSettings,
+  agent: AgentSettings,
+  remoteBridgeHost?: RemoteKnownHost,
+  skillContext?: ResolvedSkillContext
+): OpenClawConfig {
   const providerId = "hajimi-default";
   const modelId = api.model.trim();
   const modelRef = `${providerId}/${modelId}`;
@@ -172,8 +179,9 @@ export function buildOpenClawConfig(api: ChatApiSettings, agent: AgentSettings, 
       ? `Current execution environment: Remote device "${remoteBridgeHost.name}". Use the hajimi-remote-bridge MCP tools when acting on that computer.`
       : "Current execution environment: Local device.",
     "When useful, handle real workspace tasks with available file, runtime, and session tools.",
+    skillContext?.contextText ? `HaJiMi skill context:\n${skillContext.contextText}` : "",
     "Reply in the user's language unless the task asks otherwise."
-  ].join("\n");
+  ].filter(Boolean).join("\n");
   const fullAccess = agent.permissionMode === "full-access";
   const defaultMode = agent.permissionMode === "default" && !agent.allowCommands;
 
@@ -233,13 +241,74 @@ export function buildOpenClawConfig(api: ChatApiSettings, agent: AgentSettings, 
   };
 }
 
-export function parseOpenClawAgentOutput(output: string): ChatResponse {
+export function parseOpenClawAgentOutput(output: string, workspaceDir?: string): ChatResponse {
   const parsed = parseJsonFromOutput(output);
   const content = extractAssistantContent(parsed).trim();
+  const fileOutputs = extractExistingFileOutputs(content, workspaceDir);
   return {
     role: "assistant",
-    content: content || "OpenClaw finished without a text reply."
+    content: content || "OpenClaw finished without a text reply.",
+    fileOutputs: fileOutputs.length ? fileOutputs : undefined
   };
+}
+
+export function extractExistingFileOutputs(text: string, workspaceDir?: string): ChatFileOutput[] {
+  const candidates = new Set<string>();
+  const pathPatterns = [
+    /[A-Za-z]:[\\/][^\r\n`"'<>|]+?\.(?:xlsx|xlsm?|csv|tsv|docx?|pdf|pptx?|md|txt|json|zip)/gi,
+    /(?:^|[\s`'"])((?:Desktop|桌面)[\\/][^\r\n`"'<>|]+?\.(?:xlsx|xlsm?|csv|tsv|docx?|pdf|pptx?|md|txt|json|zip))/gim
+  ];
+
+  for (const pattern of pathPatterns) {
+    for (const match of text.matchAll(pattern)) {
+      candidates.add(cleanOutputPath(match[1] ?? match[0]));
+    }
+  }
+
+  const outputs: ChatFileOutput[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const resolved = resolveExistingOutputCandidate(candidate, workspaceDir);
+    if (!resolved || seen.has(resolved.toLowerCase())) {
+      continue;
+    }
+    seen.add(resolved.toLowerCase());
+    const info = safeFileStat(resolved);
+    if (!info) {
+      continue;
+    }
+    outputs.push({ path: resolved, name: basename(resolved), size: info.size });
+  }
+  return outputs;
+}
+
+function resolveExistingOutputCandidate(candidate: string, workspaceDir?: string): string | undefined {
+  const trimmed = candidate.trim();
+  const desktopDir = process.env.USERPROFILE ? join(process.env.USERPROFILE, "Desktop") : undefined;
+  const normalized = trimmed.replace(/\\/g, "/");
+  const desktopMatch = normalized.match(/^(?:Desktop|桌面)\/(.+)/i);
+  const possiblePaths = [
+    isAbsolute(trimmed) ? resolve(trimmed) : undefined,
+    desktopMatch && desktopDir ? resolve(desktopDir, desktopMatch[1]) : undefined,
+    workspaceDir && !desktopMatch ? resolve(workspaceDir, trimmed) : undefined
+  ].filter((value): value is string => Boolean(value));
+
+  return possiblePaths.find((path) => Boolean(safeFileStat(path)));
+}
+
+function safeFileStat(path: string) {
+  try {
+    const info = statSync(path);
+    return info.isFile() ? info : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function cleanOutputPath(path: string): string {
+  return path
+    .trim()
+    .replace(/[,\.;)\]\uFF0C\u3002\uFF1B\u3001\uFF09]+$/u, "");
 }
 
 function runOpenClawCli(params: {
@@ -290,6 +359,7 @@ function runOpenClawCli(params: {
     });
   });
 }
+
 
 function normalizeOpenAICompatibleBaseUrl(value: string): string {
   const url = new URL(value.trim() || "https://api.openai.com");
