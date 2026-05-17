@@ -4,7 +4,7 @@ import type { UpdateCheckResult } from "../electron/networkClient";
 import type { AppSettings, ModelProfile } from "../electron/settingsStore";
 import type { RemoteNotice } from "../electron/settingsStore";
 import type { RemoteBridgeDiscoveryResult } from "../electron/remoteBridgeDiscovery";
-import type { CapabilityCheckResult } from "./lib/capabilityCheck";
+import type { CapabilityCheckResult, CapabilityRepairActionId, CapabilityRepairResult } from "./lib/capabilityCheck";
 import type { ProjectMemory, ProjectMemoryUpdate } from "./lib/projectMemory";
 import type { ChannelProvider } from "./lib/channels";
 import type { PetPlayCommand } from "./lib/petPlay";
@@ -71,6 +71,7 @@ declare global {
       heartbeatGreeting(prompt: string): Promise<ChatResponse>;
       testModel(model: ModelProfile): Promise<string>;
       checkCapabilities(): Promise<CapabilityCheckResult>;
+      repairCapability(actionId: CapabilityRepairActionId, rowId?: string): Promise<CapabilityRepairResult>;
       checkUpdates(): Promise<UpdateCheckResult>;
       downloadUpdate(): Promise<UpdateCheckResult>;
       installUpdate(): Promise<UpdateCheckResult>;

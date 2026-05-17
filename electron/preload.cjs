@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("petApp", {
   heartbeatGreeting: (prompt) => ipcRenderer.invoke("pet:heartbeat-greeting", prompt),
   testModel: (model) => ipcRenderer.invoke("pet:test-model", model),
   checkCapabilities: () => ipcRenderer.invoke("pet:check-capabilities"),
+  repairCapability: (actionId, rowId) => ipcRenderer.invoke("pet:repair-capability", actionId, rowId),
   checkUpdates: () => ipcRenderer.invoke("pet:check-updates"),
   downloadUpdate: () => ipcRenderer.invoke("pet:download-update"),
   installUpdate: () => ipcRenderer.invoke("pet:install-update"),

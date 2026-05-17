@@ -1,4 +1,18 @@
 export type CapabilityStatus = "ready" | "warning" | "blocked";
+export type CapabilityRepairKind = "automatic" | "assistant" | "manual";
+export type CapabilityRepairActionId =
+  | "repair-openclaw-runtime"
+  | "restart-wechat-channel"
+  | "restart-remote-bridge"
+  | "assistant-diagnosis"
+  | "configure-model"
+  | "choose-workspace";
+
+export type CapabilityRepairAction = {
+  id: CapabilityRepairActionId;
+  label: string;
+  kind: CapabilityRepairKind;
+};
 
 export type CapabilityRow = {
   id: string;
@@ -6,11 +20,22 @@ export type CapabilityRow = {
   status: CapabilityStatus;
   message: string;
   fix?: string;
+  repair?: CapabilityRepairAction;
 };
 
 export type CapabilityCheckResult = {
   checkedAt: string;
   rows: CapabilityRow[];
+};
+
+export type CapabilityRepairStatus = "repaired" | "needs-action" | "failed";
+
+export type CapabilityRepairResult = {
+  checkedAt: string;
+  status: CapabilityRepairStatus;
+  message: string;
+  assistantMessage?: string;
+  result?: CapabilityCheckResult;
 };
 
 export function summarizeCapabilities(rows: CapabilityRow[]): string {

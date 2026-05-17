@@ -1600,6 +1600,31 @@ button:disabled {
   line-height: 1.45;
 }
 
+.capability-repair-button {
+  justify-self: start;
+  height: 26px;
+  margin-top: 4px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.capability-repair-button:hover:not(:disabled) {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.capability-repair-button:disabled {
+  opacity: 0.5;
+}
+
+.capability-repair-message {
+  white-space: pre-wrap;
+}
+
 .manager-app-shell {
   display: grid;
   grid-template-columns: 294px minmax(0, 1fr);

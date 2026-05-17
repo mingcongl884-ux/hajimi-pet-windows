@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { ChatMessage } from "./chatClient.js";
 import type { AppSettings, ModelProfile } from "./settingsStore.js";
 import type { ChannelProvider } from "../src/lib/channels.js";
-import type { CapabilityCheckResult } from "../src/lib/capabilityCheck.js";
+import type { CapabilityCheckResult, CapabilityRepairActionId, CapabilityRepairResult } from "../src/lib/capabilityCheck.js";
 import type { ProjectMemory, ProjectMemoryUpdate } from "../src/lib/projectMemory.js";
 import type { PetAppState, PetWindowBounds } from "../src/global.js";
 import type { PetMoveCommand } from "../src/lib/petMotion.js";
@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld("petApp", {
   heartbeatGreeting: (prompt: string) => ipcRenderer.invoke("pet:heartbeat-greeting", prompt),
   testModel: (model: ModelProfile) => ipcRenderer.invoke("pet:test-model", model),
   checkCapabilities: (): Promise<CapabilityCheckResult> => ipcRenderer.invoke("pet:check-capabilities"),
+  repairCapability: (actionId: CapabilityRepairActionId, rowId?: string): Promise<CapabilityRepairResult> =>
+    ipcRenderer.invoke("pet:repair-capability", actionId, rowId),
   checkUpdates: () => ipcRenderer.invoke("pet:check-updates"),
   downloadUpdate: () => ipcRenderer.invoke("pet:download-update"),
   installUpdate: () => ipcRenderer.invoke("pet:install-update"),

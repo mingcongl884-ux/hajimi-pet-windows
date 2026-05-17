@@ -138,6 +138,8 @@ export default function ManagerPage({
   const [networkMessage, setNetworkMessage] = useState<string>();
   const [capabilityResult, setCapabilityResult] = useState<CapabilityCheckResult>();
   const [checkingCapabilities, setCheckingCapabilities] = useState(false);
+  const [repairingCapabilityId, setRepairingCapabilityId] = useState<string>();
+  const [capabilityRepairMessage, setCapabilityRepairMessage] = useState<string>();
   const [projectMemorySuggestion, setProjectMemorySuggestion] = useState<ProjectMemorySuggestion>();
   const [channelMessage, setChannelMessage] = useState<string>();
   const [channelBusyProvider, setChannelBusyProvider] = useState<ChannelProvider>();
@@ -370,6 +372,7 @@ export default function ManagerPage({
 
   async function checkCapabilities() {
     setCheckingCapabilities(true);
+    setCapabilityRepairMessage(undefined);
     setTestMessage(undefined);
     try {
       await onSave(ensureProjects(ensureModelProfiles(settings)));
@@ -380,6 +383,23 @@ export default function ManagerPage({
       setTestMessage(error instanceof Error ? error.message : "能力体检失败");
     } finally {
       setCheckingCapabilities(false);
+    }
+  }
+
+  async function repairCapability(rowId: string, actionId: NonNullable<CapabilityCheckResult["rows"][number]["repair"]>["id"]) {
+    setRepairingCapabilityId(rowId);
+    setCapabilityRepairMessage(undefined);
+    try {
+      await onSave(ensureProjects(ensureModelProfiles(settings)));
+      const result = await window.petApp.repairCapability(actionId, rowId);
+      if (result.result) {
+        setCapabilityResult(result.result);
+      }
+      setCapabilityRepairMessage(result.assistantMessage ? `${result.message}\n${result.assistantMessage}` : result.message);
+    } catch (error) {
+      setCapabilityRepairMessage(error instanceof Error ? error.message : "故障修复失败");
+    } finally {
+      setRepairingCapabilityId(undefined);
     }
   }
 
@@ -1745,10 +1765,21 @@ export default function ManagerPage({
                           <strong>{row.label}</strong>
                           <small>{row.message}</small>
                           {row.fix && <small>{row.fix}</small>}
+                          {row.repair && (
+                            <button
+                              type="button"
+                              className="capability-repair-button"
+                              disabled={Boolean(repairingCapabilityId)}
+                              onClick={() => void repairCapability(row.id, row.repair.id)}
+                            >
+                              {repairingCapabilityId === row.id ? "修复中..." : row.repair.label}
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
                   </div>
+                  {capabilityRepairMessage && <p className="save-state capability-repair-message">{capabilityRepairMessage}</p>}
                 </div>
               )}
             </div>

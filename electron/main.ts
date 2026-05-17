@@ -18,12 +18,13 @@ import { randomInt } from "node:crypto";
 import { freemem, totalmem } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkCapabilities } from "./capabilityCheck.js";
+import { buildCapabilityRepairPrompt, checkCapabilities, repairOpenClawRuntime } from "./capabilityCheck.js";
 import { handleInboundChannelMessage } from "./channelBridge.js";
 import { restoreChannelAdapter, startChannelAdapter, stopChannelAdapter, testChannelAdapter } from "./channelAdapters.js";
 import type { ChannelProvider } from "../src/lib/channels.js";
 import type { ChannelMessage } from "../src/lib/channelRouter.js";
 import type { ChatMessage } from "./chatClient.js";
+import type { CapabilityRepairActionId, CapabilityRepairResult } from "../src/lib/capabilityCheck.js";
 import type { PetAction } from "../src/lib/petActions.js";
 import {
   checkForAppUpdates,
@@ -459,6 +460,9 @@ function registerIpc() {
     const settings = await settingsStore.loadSettings();
     return checkCapabilities(settings);
   });
+  ipcMain.handle("pet:repair-capability", async (_event, actionId: CapabilityRepairActionId, rowId?: string) => {
+    return repairCapability(actionId, rowId);
+  });
   ipcMain.handle("pet:check-updates", async () => {
     const settings = await settingsStore.loadSettings();
     const result = await checkForAppUpdates(settings.network);
@@ -594,6 +598,109 @@ async function sendModelChat(
 ) {
   const { sendChatMessage } = await import("./chatClient.js");
   return sendChatMessage(fetchImpl, model, messages);
+}
+
+async function repairCapability(actionId: CapabilityRepairActionId, rowId?: string): Promise<CapabilityRepairResult> {
+  const settings = await settingsStore.loadSettings();
+  if (actionId === "repair-openclaw-runtime") {
+    const repaired = await repairOpenClawRuntime();
+    return {
+      ...repaired,
+      result: await checkCapabilities(await settingsStore.loadSettings())
+    };
+  }
+
+  if (actionId === "restart-wechat-channel") {
+    const channel = settings.channels.find((item) => item.provider === "wechat");
+    if (!channel) {
+      return capabilityRepairResult("failed", "微信通道不存在。");
+    }
+    await waitForChannelBridgeShutdown();
+    await stopChannelAdapter(channel).catch(() => undefined);
+    const latestSettings = await settingsStore.loadSettings();
+    const latestChannel = latestSettings.channels.find((item) => item.provider === "wechat") ?? channel;
+    const result = await startChannelAdapter({ ...latestChannel, enabled: true });
+    const nextSettings = updateChannelStatus(latestSettings, "wechat", result.status, true);
+    await settingsStore.saveSettings(nextSettings);
+    syncChannelBridges(nextSettings, { allowStarting: true });
+    await broadcastState();
+    return {
+      checkedAt: new Date().toISOString(),
+      status: result.status === "error" ? "failed" : "repaired",
+      message: result.message,
+      result: await checkCapabilities(nextSettings)
+    };
+  }
+
+  if (actionId === "restart-remote-bridge") {
+    await stopRemoteBridgeHost();
+    await syncRemoteBridgeHost(settings);
+    const refreshed = await settingsStore.loadSettings();
+    await broadcastState();
+    return {
+      checkedAt: new Date().toISOString(),
+      status: "repaired",
+      message: "已重启跨电脑桥接服务。",
+      result: await checkCapabilities(refreshed)
+    };
+  }
+
+  if (actionId === "assistant-diagnosis") {
+    return buildAssistedCapabilityRepair(settings, rowId);
+  }
+
+  if (actionId === "configure-model") {
+    return capabilityRepairResult("needs-action", "请到模型页补全 API Base URL、API Key 和模型名，然后点击测试连接。");
+  }
+
+  if (actionId === "choose-workspace") {
+    return capabilityRepairResult("needs-action", "请在左侧项目区选择一个可读写的办公目录。");
+  }
+
+  return capabilityRepairResult("needs-action", "这个故障需要手动处理。");
+}
+
+async function buildAssistedCapabilityRepair(settings: AppSettings, rowId?: string): Promise<CapabilityRepairResult> {
+  const capabilityResult = await checkCapabilities(settings);
+  const model = settings.models.find((item) => item.apiKey.trim() && item.baseUrl.trim() && item.model.trim());
+  if (!model) {
+    const target = rowId ? capabilityResult.rows.find((row) => row.id === rowId) : undefined;
+    return {
+      checkedAt: new Date().toISOString(),
+      status: "needs-action",
+      message: target?.fix ?? "还没有可用模型，无法生成辅助修复建议。请先补全模型配置。",
+      result: capabilityResult
+    };
+  }
+
+  try {
+    const response = await sendModelChat(fetch, model, [{
+      role: "user",
+      content: buildCapabilityRepairPrompt(capabilityResult.rows, rowId)
+    }]);
+    return {
+      checkedAt: new Date().toISOString(),
+      status: "needs-action",
+      message: "模型已生成修复建议。",
+      assistantMessage: response.content,
+      result: capabilityResult
+    };
+  } catch (error) {
+    return {
+      checkedAt: new Date().toISOString(),
+      status: "failed",
+      message: error instanceof Error ? error.message : "模型辅助修复失败。",
+      result: capabilityResult
+    };
+  }
+}
+
+function capabilityRepairResult(status: CapabilityRepairResult["status"], message: string): CapabilityRepairResult {
+  return {
+    checkedAt: new Date().toISOString(),
+    status,
+    message
+  };
 }
 
 async function runClaudeOfficeTask(
