@@ -63,6 +63,7 @@ declare global {
       stopRemoteBridge(): Promise<PetAppState>;
       generateRemotePairingCode(): Promise<PetAppState>;
       revokeRemoteDevice(deviceId: string): Promise<PetAppState>;
+      pairRemoteBridge(address: string, pairingCode: string): Promise<PetAppState>;
       discoverRemoteBridges(): Promise<RemoteBridgeDiscoveryResult[]>;
       startChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
       stopChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;

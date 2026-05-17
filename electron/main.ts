@@ -49,7 +49,7 @@ import { SkillStore, type SkillUpdatePatch } from "./skillStore.js";
 import type { OfficeSkillRequest, ResolvedSkillContext } from "../src/lib/skills.js";
 import type { ProjectMemoryUpdate } from "../src/lib/projectMemory.js";
 import { startRemoteBridgeHost, type RemoteBridgeHostController } from "./remoteBridgeHost.js";
-import { buildRemoteBridgeHttpMcpServerConfig, callRemoteBridgeTool } from "./remoteBridgeClient.js";
+import { buildRemoteBridgeHttpMcpServerConfig, callRemoteBridgeTool, pairRemoteBridgeHost } from "./remoteBridgeClient.js";
 import {
   discoverRemoteBridgeHosts,
   startRemoteBridgeDiscoveryResponder,
@@ -376,6 +376,23 @@ function registerIpc() {
     await settingsStore.saveSettings(nextSettings);
     await stopRemoteBridgeHost();
     await syncRemoteBridgeHost(nextSettings);
+    return broadcastState();
+  });
+  ipcMain.handle("pet:pair-remote-bridge", async (_event, address: string, pairingCode: string) => {
+    const settings = await settingsStore.loadSettings();
+    const host = await pairRemoteBridgeHost(address, pairingCode, settings.remoteBridge.deviceName || "HaJiMi");
+    const nextSettings = {
+      ...settings,
+      remoteBridge: {
+        ...settings.remoteBridge,
+        knownHosts: [
+          ...settings.remoteBridge.knownHosts.filter((item) => item.id !== host.id),
+          host
+        ],
+        activeTargetId: host.id
+      }
+    };
+    await settingsStore.saveSettings(nextSettings);
     return broadcastState();
   });
   ipcMain.handle("pet:discover-remote-bridges", () => discoverRemoteBridgeHosts());

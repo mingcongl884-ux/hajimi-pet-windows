@@ -115,6 +115,7 @@ Installers are generated in `dist/`.
 | 0.1.41 | `HaJiMi-Setup-0.1.41.exe` | Adds HaJiMi's direct WeChat message bridge so ClawBot messages enter the current chat/office conversation, auto-pair senders, reply through the selected model, and trigger pet actions. |
 | 0.1.42 | `HaJiMi-Setup-0.1.42.exe` | Fixes installed WeChat QR startup by launching a generated PowerShell script file, and runs the WeChat message bridge in bundled Node 22 to avoid Electron runtime incompatibilities. |
 | 0.1.53 | `HaJiMi-Setup-0.1.53.exe` | Adds Codex-style settings pages, keeps office as the default app surface, moves models/Skills/channels/system options under Settings, and supports Skills management with slash invocation. |
+| 0.1.54 | `HaJiMi-Setup-0.1.54.exe` | Fixes remote bridge pairing by moving the `/pair` request into the Electron main process, avoiding renderer CORS failures and making LAN or relay connection setup reliable. |
 
 Use the latest installer unless you need to compare a previous build.
 

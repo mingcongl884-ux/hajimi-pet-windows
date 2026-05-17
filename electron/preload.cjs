@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("petApp", {
   stopRemoteBridge: () => ipcRenderer.invoke("pet:stop-remote-bridge"),
   generateRemotePairingCode: () => ipcRenderer.invoke("pet:generate-remote-pairing-code"),
   revokeRemoteDevice: (deviceId) => ipcRenderer.invoke("pet:revoke-remote-device", deviceId),
+  pairRemoteBridge: (address, pairingCode) => ipcRenderer.invoke("pet:pair-remote-bridge", address, pairingCode),
   discoverRemoteBridges: () => ipcRenderer.invoke("pet:discover-remote-bridges"),
   startChannel: (provider) => ipcRenderer.invoke("pet:start-channel", provider),
   stopChannel: (provider) => ipcRenderer.invoke("pet:stop-channel", provider),

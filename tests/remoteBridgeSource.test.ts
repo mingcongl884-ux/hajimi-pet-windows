@@ -15,6 +15,8 @@ describe("remote bridge source wiring", () => {
     expect(mainSource).toContain('"pet:stop-remote-bridge"');
     expect(mainSource).toContain('"pet:generate-remote-pairing-code"');
     expect(mainSource).toContain('"pet:revoke-remote-device"');
+    expect(mainSource).toContain('"pet:pair-remote-bridge"');
+    expect(mainSource).toContain("pairRemoteBridgeHost(address, pairingCode");
     expect(mainSource).toContain('"pet:discover-remote-bridges"');
     expect(mainSource).toContain("startRemoteBridgeRelayHost");
     expect(mainSource).not.toContain("runClaudeOfficeTask(model, settings.remoteBridge");
@@ -25,9 +27,12 @@ describe("remote bridge source wiring", () => {
     expect(preloadSource).toContain("startRemoteBridge");
     expect(preloadSource).toContain("discoverRemoteBridges");
     expect(preloadSource).toContain("generateRemotePairingCode");
+    expect(preloadSource).toContain("pairRemoteBridge");
     expect(preloadCjsSource).toContain("startRemoteBridge");
     expect(preloadCjsSource).toContain("discoverRemoteBridges");
+    expect(preloadCjsSource).toContain("pairRemoteBridge");
     expect(globalSource).toContain("startRemoteBridge(): Promise<PetAppState>");
+    expect(globalSource).toContain("pairRemoteBridge(address: string, pairingCode: string): Promise<PetAppState>");
     expect(globalSource).toContain("discoverRemoteBridges(): Promise<RemoteBridgeDiscoveryResult[]>");
     expect(globalSource).toContain("revokeRemoteDevice(deviceId: string): Promise<PetAppState>");
   });
@@ -35,5 +40,7 @@ describe("remote bridge source wiring", () => {
   it("uses shared bridge target summary helpers in the manager page", () => {
     expect(managerSource).toContain("summarizeRemoteBridgeStatus");
     expect(managerSource).toContain("describeRemoteBridgeTarget");
+    expect(managerSource).toContain("window.petApp.pairRemoteBridge");
+    expect(managerSource).not.toContain("fetch(new URL(\"/pair\"");
   });
 });

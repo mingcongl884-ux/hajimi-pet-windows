@@ -2,6 +2,11 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.54 - 2026-05-18
+
+- Fixed remote bridge pairing by moving the `/pair` request into the Electron main process, which avoids renderer CORS issues and makes LAN or relay connection setup reliable.
+- Added a dedicated `pairRemoteBridge` IPC path so the same bridge flow can be reused by future tooling and connection screens.
+
 ## 0.1.52 - 2026-05-17
 
 - Added cross-computer bridge cloud relay support so one HaJiMi can authorize another HaJiMi to run remote desktop-agent tools across networks.

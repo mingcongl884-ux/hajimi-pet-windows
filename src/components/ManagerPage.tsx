@@ -31,8 +31,7 @@ import { ensureProjects } from "../lib/projects";
 import {
   describeRemoteBridgeTarget,
   ensureRemoteBridgeSettings,
-  summarizeRemoteBridgeStatus,
-  type RemoteKnownHost
+  summarizeRemoteBridgeStatus
 } from "../lib/remoteBridge";
 import { buildAttachmentMessage, fileToPromptAttachment, type PromptAttachment } from "../lib/fileMessage";
 import { ensureModelProfiles, upsertModelProfile } from "../lib/modelProfiles";
@@ -736,46 +735,12 @@ export default function ManagerPage({
     setSaving(true);
     setRemoteBridgeMessage(undefined);
     try {
-      const response = await fetch(new URL("/pair", normalizeRemoteBridgeAddress(address)).toString(), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          pairingCode,
-          deviceName: settings.remoteBridge.deviceName || "HaJiMi"
-        })
-      });
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      const payload = await response.json() as {
-        deviceId: string;
-        name: string;
-        token: string;
-        permissionMode: RemoteKnownHost["permissionMode"];
-        transport?: RemoteKnownHost["transport"];
-        relaySessionId?: string;
+      const state = await window.petApp.pairRemoteBridge(address, pairingCode);
+      const nextSettings = prepareManagerSettings(state.settings);
+      const nextHost = nextSettings.remoteBridge.knownHosts.find((host) => host.id === nextSettings.remoteBridge.activeTargetId) ?? {
+        name: "remote computer"
       };
-      const nextHost: RemoteKnownHost = {
-        id: payload.deviceId,
-        name: payload.name,
-        address: normalizeRemoteBridgeAddress(address),
-        token: payload.token,
-        permissionMode: payload.permissionMode,
-        transport: payload.transport ?? "http",
-        relaySessionId: payload.relaySessionId
-      };
-      await update({
-        ...settings,
-        remoteBridge: {
-          ...settings.remoteBridge,
-          knownHosts: [
-            ...settings.remoteBridge.knownHosts.filter((host) => host.id !== nextHost.id),
-            nextHost
-          ],
-          activeTargetId: nextHost.id
-        }
-      });
+      setSettings(nextSettings);
       setTargetMenuOpen(false);
       setRemoteBridgeMessage(`已连接到 ${nextHost.name}。`);
     } catch (error) {
@@ -2463,8 +2428,4 @@ function formatElapsedTime(durationMs: number): string {
     return `${seconds}s`;
   }
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-}
-
-function normalizeRemoteBridgeAddress(address: string): string {
-  return new URL(address.trim()).toString().replace(/\/$/u, "");
 }
