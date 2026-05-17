@@ -165,6 +165,8 @@ export default function ManagerPage({
   const permissionMenuRef = useRef<HTMLDivElement>(null);
   const targetMenuRef = useRef<HTMLDivElement>(null);
   const officeCancelRequestedRef = useRef(false);
+  const activeOfficeTask = officeTask.activeTaskCard;
+  const officeTaskStatus = officeTask.status;
 
   useEffect(() => setSettings(prepareManagerSettings(state.settings)), [state.settings]);
   useEffect(() => {
@@ -981,8 +983,6 @@ export default function ManagerPage({
   const activeRemoteTargetLabel = activeRemoteTarget.label;
   const activeRemoteTargetDescription = activeRemoteTarget.description;
   const selectedModel = settings.models.find((model) => model.id === selectedModelId) ?? settings.models[0];
-  const activeOfficeTask = officeTask.activeTaskCard;
-  const officeTaskStatus = officeTask.status;
   const activeOfficeTaskElapsedMs = activeOfficeTask
     ? activeOfficeTask.phase === "processing" || activeOfficeTask.phase === "starting"
       ? officeElapsedMs
