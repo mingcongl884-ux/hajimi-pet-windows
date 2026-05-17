@@ -64,6 +64,23 @@ export type RemoteBridgeSettings = {
   knownHosts: RemoteKnownHost[];
 };
 
+export type RemoteBridgeTargetSummary = {
+  label: string;
+  description: string;
+};
+
+export type RemoteBridgeStatusSummary = {
+  local: {
+    status: RemoteBridgeStatus;
+    label: string;
+  };
+  relay: {
+    status: RemoteBridgeStatus;
+    label: string;
+  };
+  activeTarget: RemoteBridgeTargetSummary;
+};
+
 const DEFAULT_TOOLS = new Set<RemoteToolName>([
   "listFiles",
   "readFile",
@@ -79,6 +96,12 @@ const AUTO_TOOLS = new Set<RemoteToolName>([
   "createSpreadsheet",
   "splitSpreadsheet"
 ]);
+const STATUS_LABELS: Record<RemoteBridgeStatus, string> = {
+  disabled: "Disabled",
+  listening: "Listening",
+  connected: "Connected",
+  error: "Error"
+};
 
 export function defaultRemoteBridgeSettings(deviceName = "HaJiMi Host"): RemoteBridgeSettings {
   return {
@@ -125,6 +148,45 @@ export function ensureRemoteBridgeSettings<T extends { remoteBridge?: Partial<Re
   return {
     ...settings,
     remoteBridge: cloneRemoteBridgeSettings(settings.remoteBridge)
+  };
+}
+
+export function describeRemoteBridgeTarget(
+  settings: RemoteBridgeSettings,
+  targetId: RemoteBridgeTargetId = settings.activeTargetId
+): RemoteBridgeTargetSummary {
+  if (!targetId || targetId === "local") {
+    return {
+      label: "Local device",
+      description: "Local device"
+    };
+  }
+
+  const host = settings.knownHosts.find((item) => item.id === targetId && item.address.trim() && item.token.trim());
+  if (!host) {
+    return {
+      label: "Remote device",
+      description: "Selected remote device is no longer available"
+    };
+  }
+
+  return {
+    label: host.name || "Remote device",
+    description: `Remote device: ${host.name || "Remote device"} (${host.address})`
+  };
+}
+
+export function summarizeRemoteBridgeStatus(settings: RemoteBridgeSettings): RemoteBridgeStatusSummary {
+  return {
+    local: {
+      status: settings.host.status,
+      label: STATUS_LABELS[settings.host.status]
+    },
+    relay: {
+      status: settings.relay.status,
+      label: STATUS_LABELS[settings.relay.status]
+    },
+    activeTarget: describeRemoteBridgeTarget(settings)
   };
 }
 

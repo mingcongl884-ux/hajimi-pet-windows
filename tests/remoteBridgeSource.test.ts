@@ -5,6 +5,7 @@ const mainSource = readFileSync("electron/main.ts", "utf8");
 const preloadSource = readFileSync("electron/preload.ts", "utf8");
 const preloadCjsSource = readFileSync("electron/preload.cjs", "utf8");
 const globalSource = readFileSync("src/global.d.ts", "utf8");
+const managerSource = readFileSync("src/components/ManagerPage.tsx", "utf8");
 
 describe("remote bridge source wiring", () => {
   it("wires host bridge IPC without requiring model configuration on the host", () => {
@@ -29,5 +30,10 @@ describe("remote bridge source wiring", () => {
     expect(globalSource).toContain("startRemoteBridge(): Promise<PetAppState>");
     expect(globalSource).toContain("discoverRemoteBridges(): Promise<RemoteBridgeDiscoveryResult[]>");
     expect(globalSource).toContain("revokeRemoteDevice(deviceId: string): Promise<PetAppState>");
+  });
+
+  it("uses shared bridge target summary helpers in the manager page", () => {
+    expect(managerSource).toContain("summarizeRemoteBridgeStatus");
+    expect(managerSource).toContain("describeRemoteBridgeTarget");
   });
 });

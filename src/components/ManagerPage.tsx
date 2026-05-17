@@ -28,7 +28,12 @@ import type { PetAppState } from "../global";
 import { toggleActivePetId } from "../lib/activePets";
 import { openClawSetupSteps, type ChannelProvider, type ChannelSettings } from "../lib/channels";
 import { ensureProjects } from "../lib/projects";
-import { ensureRemoteBridgeSettings, type RemoteKnownHost } from "../lib/remoteBridge";
+import {
+  describeRemoteBridgeTarget,
+  ensureRemoteBridgeSettings,
+  summarizeRemoteBridgeStatus,
+  type RemoteKnownHost
+} from "../lib/remoteBridge";
 import { buildAttachmentMessage, fileToPromptAttachment, type PromptAttachment } from "../lib/fileMessage";
 import { ensureModelProfiles, upsertModelProfile } from "../lib/modelProfiles";
 import { capabilityStatusLabel, summarizeCapabilities, type CapabilityCheckResult } from "../lib/capabilityCheck";
@@ -951,17 +956,10 @@ export default function ManagerPage({
   const activeAgentModelName = activeAgentModel?.name || "默认模型";
   const openAiCompatibleModels = settings.models.filter((model) => model.provider === "openai-compatible");
   const claudeAgentModels = settings.models.filter((model) => model.provider === "claude-agent");
-  const activeRemoteHost = settings.remoteBridge.knownHosts.find((host) => host.id === settings.remoteBridge.activeTargetId);
-  const activeRemoteTargetLabel = settings.remoteBridge.activeTargetId === "local" ? "本机" : activeRemoteHost?.name || "远端设备";
-  const activeRemoteTargetDescription = settings.remoteBridge.activeTargetId === "local"
-    ? "本机执行"
-    : activeRemoteHost
-      ? `${activeRemoteHost.address} · ${activeRemoteHost.permissionMode === "full-access"
-        ? "完全访问权限"
-        : activeRemoteHost.permissionMode === "auto-review"
-          ? "自动审查"
-          : "默认权限"}`
-      : "远端设备未找到";
+  const remoteBridgeSummary = summarizeRemoteBridgeStatus(settings.remoteBridge);
+  const activeRemoteTarget = describeRemoteBridgeTarget(settings.remoteBridge);
+  const activeRemoteTargetLabel = activeRemoteTarget.label;
+  const activeRemoteTargetDescription = activeRemoteTarget.description;
   const selectedModel = settings.models.find((model) => model.id === selectedModelId) ?? settings.models[0];
   const activeOfficeTask = officeTask.activeTaskCard;
   const officeTaskStatus = officeTask.status;
@@ -1292,7 +1290,7 @@ export default function ManagerPage({
               </div>
               <div className="composer-target-picker" ref={targetMenuRef}>
                 <button
-                  className="composer-target-select"
+                  className={`composer-target-select ${settings.remoteBridge.activeTargetId === "local" ? "local-target" : "remote-target"}`}
                   type="button"
                   title={activeRemoteTargetDescription}
                   aria-expanded={targetMenuOpen}
@@ -1810,6 +1808,23 @@ export default function ManagerPage({
                 <Sparkles size={18} />
                 <span>跨电脑桥接</span>
               </div>
+              <div className="remote-bridge-summary">
+                <div className="remote-bridge-summary-item">
+                  <span>本机桥接</span>
+                  <strong>{remoteBridgeSummary.local.label}</strong>
+                  <small>{settings.remoteBridge.enabled ? `${settings.remoteBridge.deviceName} · ${settings.remoteBridge.host.status}` : "未启用"}</small>
+                </div>
+                <div className="remote-bridge-summary-item">
+                  <span>云中转</span>
+                  <strong>{remoteBridgeSummary.relay.label}</strong>
+                  <small>{settings.remoteBridge.relay.enabled ? (settings.remoteBridge.relay.url || "已启用") : "未启用"}</small>
+                </div>
+                <div className="remote-bridge-summary-item active">
+                  <span>执行目标</span>
+                  <strong>{activeRemoteTargetLabel}</strong>
+                  <small>{activeRemoteTargetDescription}</small>
+                </div>
+              </div>
               <div className="remote-bridge-grid">
                 <div className="remote-bridge-column">
                   <label className="manager-toggle">
@@ -1901,7 +1916,7 @@ export default function ManagerPage({
                   </label>
                   <div className="remote-bridge-status-row">
                     <span>状态</span>
-                    <strong>{settings.remoteBridge.host.status}</strong>
+                    <strong>{remoteBridgeSummary.local.label}</strong>
                   </div>
                   <div className="network-actions">
                     <button className="secondary-command" disabled={saving} onClick={() => void startRemoteBridge()}>
