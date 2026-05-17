@@ -45,6 +45,14 @@ import { startWeixinMessageBridge, type WeixinMessageBridgeStop, type WeixinMess
 import { ProjectMemoryStore } from "./projectMemoryStore.js";
 import type { ProjectMemoryUpdate } from "../src/lib/projectMemory.js";
 import { startRemoteBridgeHost, type RemoteBridgeHostController } from "./remoteBridgeHost.js";
+import { buildRemoteBridgeHttpMcpServerConfig, callRemoteBridgeTool } from "./remoteBridgeClient.js";
+import {
+  discoverRemoteBridgeHosts,
+  startRemoteBridgeDiscoveryResponder,
+  type RemoteBridgeDiscoveryResponder
+} from "./remoteBridgeDiscovery.js";
+import { startRemoteBridgeRelayHost, type RemoteBridgeRelayHostController } from "./remoteBridgeRelayHost.js";
+import type { RemoteKnownHost } from "../src/lib/remoteBridge.js";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
 const PET_ASSET_PROTOCOL = "pet-asset";
@@ -63,6 +71,10 @@ let petPlayTick = 0;
 let currentPetScale = DEFAULT_SETTINGS.petScale;
 let stopWeixinBridge: WeixinMessageBridgeStop | undefined;
 let remoteBridgeHost: RemoteBridgeHostController | undefined;
+let remoteBridgeDiscoveryResponder: RemoteBridgeDiscoveryResponder | undefined;
+let remoteBridgeDiscoverySignature = "";
+let remoteBridgeRelayHost: RemoteBridgeRelayHostController | undefined;
+let remoteBridgeRelaySignature = "";
 let channelMessageQueue = Promise.resolve();
 const channelRuntimeStatusKeys = new Map<ChannelProvider, string>();
 const activeChatTaskControllers = new Map<string, AbortController>();
@@ -360,6 +372,7 @@ function registerIpc() {
     await syncRemoteBridgeHost(nextSettings);
     return broadcastState();
   });
+  ipcMain.handle("pet:discover-remote-bridges", () => discoverRemoteBridgeHosts());
   ipcMain.handle("pet:start-channel", async (_event, provider: ChannelProvider) => {
     const settings = await settingsStore.loadSettings();
     const channel = settings.channels.find((item) => item.provider === provider);
@@ -424,10 +437,9 @@ function registerIpc() {
     const task = createCancellableChatTask(requestId);
     const settings = await settingsStore.loadSettings();
     const model = getModelSettingsById(settings, modelId, "agent");
+    const remoteHost = resolveActiveRemoteBridgeHost(settings);
     try {
-      return await (model.provider === "claude-agent"
-        ? runClaudeOfficeTask(model, settings.agent, taskPrompt, task.controller)
-        : runOrdinaryOfficeTask(task.fetchImpl, model, settings.agent, taskPrompt, task.controller));
+      return await runRemoteBridgeAgentTask(task.fetchImpl, model, settings.agent, taskPrompt, task.controller, remoteHost);
     } finally {
       task.finish();
     }
@@ -541,13 +553,23 @@ async function runOrdinaryOfficeTask(
   model: ModelProfile,
   agent: AppSettings["agent"],
   taskPrompt: string,
-  controller?: AbortController
+  controller?: AbortController,
+  remoteHost?: RemoteKnownHost
 ) {
+  if (remoteHost?.transport === "relay") {
+    const { runAgentTask } = await import("./agentClient.js");
+    return runAgentTask(fetchImpl, model, agent, taskPrompt, controller?.signal, {
+      executionContext: describeExecutionTarget(remoteHost),
+      remoteToolExecutor: (tool, args) => callRemoteBridgeTool(remoteHost, { tool, args })
+    });
+  }
+
   try {
     const { runOpenClawAgentTask } = await import("./openClawAgentClient.js");
     return await runOpenClawAgentTask(model, agent, taskPrompt, {
       stateDir: join(app.getPath("userData"), "openclaw-office"),
-      signal: controller?.signal
+      signal: controller?.signal,
+      remoteBridgeHost: remoteHost
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -556,7 +578,12 @@ async function runOrdinaryOfficeTask(
     }
     await writeRuntimeLog(`openclaw ordinary office unavailable; falling back to legacy agent: ${message}`);
     const { runAgentTask } = await import("./agentClient.js");
-    return runAgentTask(fetchImpl, model, agent, taskPrompt, controller?.signal);
+    return runAgentTask(fetchImpl, model, agent, taskPrompt, controller?.signal, {
+      executionContext: describeExecutionTarget(remoteHost),
+      remoteToolExecutor: remoteHost
+        ? (tool, args) => callRemoteBridgeTool(remoteHost, { tool, args })
+        : undefined
+    });
   }
 }
 
@@ -573,15 +600,49 @@ async function runClaudeOfficeTask(
   model: ModelProfile,
   agent: AppSettings["agent"],
   taskPrompt: string,
-  controller?: AbortController
+  controller?: AbortController,
+  remoteHost?: RemoteKnownHost
 ) {
   const { runClaudeAgentTask } = await import("./claudeAgentClient.js");
-  return runClaudeAgentTask(model, agent, taskPrompt, controller);
+  return runClaudeAgentTask(model, agent, taskPrompt, {
+    abortController: controller,
+    executionContext: describeExecutionTarget(remoteHost),
+    ...(remoteHost ? {
+      mcpServers: {
+        "hajimi-remote-bridge": buildRemoteBridgeHttpMcpServerConfig(remoteHost)
+      }
+    } : {})
+  });
 }
 
 async function testClaudeModel(model: ModelProfile) {
   const { testClaudeAgentModel } = await import("./claudeAgentClient.js");
   return testClaudeAgentModel(model);
+}
+
+async function runRemoteBridgeAgentTask(
+  fetchImpl: (url: string, init: RequestInit) => ReturnType<typeof fetch>,
+  model: ModelProfile,
+  agent: AppSettings["agent"],
+  taskPrompt: string,
+  controller?: AbortController,
+  remoteHost?: RemoteKnownHost
+) {
+  return model.provider === "claude-agent"
+    ? runClaudeOfficeTask(model, agent, taskPrompt, controller, remoteHost)
+    : runOrdinaryOfficeTask(fetchImpl, model, agent, taskPrompt, controller, remoteHost);
+}
+
+function resolveActiveRemoteBridgeHost(settings: AppSettings): RemoteKnownHost | undefined {
+  const activeTargetId = settings.remoteBridge.activeTargetId;
+  if (!activeTargetId || activeTargetId === "local") {
+    return undefined;
+  }
+  return settings.remoteBridge.knownHosts.find((host) => host.id === activeTargetId && host.address.trim() && host.token.trim());
+}
+
+function describeExecutionTarget(remoteHost?: RemoteKnownHost): string {
+  return remoteHost ? `Remote device: ${remoteHost.name} (${remoteHost.address})` : "Local device";
 }
 
 async function deleteImportedPet(petId: string) {
@@ -808,6 +869,8 @@ async function syncRemoteBridgeHost(settings: AppSettings) {
     return;
   }
   if (remoteBridgeHost) {
+    await syncRemoteBridgeDiscoveryResponder(settings, remoteBridgeHost.port);
+    await syncRemoteBridgeRelayHost(settings);
     return;
   }
   const workspaceDir = settings.agent.workspaceDir.trim();
@@ -846,9 +909,13 @@ async function syncRemoteBridgeHost(settings: AppSettings) {
     }
   });
   await writeRuntimeLog(`remote bridge listening on ${remoteBridgeHost.url}`);
+  await syncRemoteBridgeDiscoveryResponder(settings, remoteBridgeHost.port);
+  await syncRemoteBridgeRelayHost(settings);
 }
 
 async function stopRemoteBridgeHost() {
+  await stopRemoteBridgeDiscoveryResponder();
+  await stopRemoteBridgeRelayHost();
   if (!remoteBridgeHost) {
     return;
   }
@@ -856,6 +923,103 @@ async function stopRemoteBridgeHost() {
   remoteBridgeHost = undefined;
   await host.stop();
   await writeRuntimeLog("remote bridge stopped");
+}
+
+async function syncRemoteBridgeDiscoveryResponder(settings: AppSettings, servicePort: number) {
+  const workspaceReady = Boolean(settings.agent.workspaceDir.trim());
+  const pairingAvailable = Boolean(
+    settings.remoteBridge.host.pairingCode &&
+    (!settings.remoteBridge.host.pairingExpiresAt || Date.now() <= Date.parse(settings.remoteBridge.host.pairingExpiresAt))
+  );
+  const signature = [
+    settings.remoteBridge.deviceName,
+    servicePort,
+    settings.remoteBridge.host.permissionMode,
+    workspaceReady,
+    pairingAvailable
+  ].join("|");
+
+  if (remoteBridgeDiscoveryResponder && remoteBridgeDiscoverySignature === signature) {
+    return;
+  }
+
+  await stopRemoteBridgeDiscoveryResponder();
+  try {
+    remoteBridgeDiscoveryResponder = await startRemoteBridgeDiscoveryResponder({
+      deviceName: settings.remoteBridge.deviceName || "HaJiMi Host",
+      servicePort,
+      permissionMode: settings.remoteBridge.host.permissionMode,
+      workspaceReady,
+      pairingAvailable
+    });
+    remoteBridgeDiscoverySignature = signature;
+    await writeRuntimeLog(`remote bridge discovery listening on udp ${remoteBridgeDiscoveryResponder.port}`);
+  } catch (error) {
+    remoteBridgeDiscoverySignature = "";
+    await writeRuntimeLog(`remote bridge discovery unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function stopRemoteBridgeDiscoveryResponder() {
+  if (!remoteBridgeDiscoveryResponder) {
+    return;
+  }
+  const responder = remoteBridgeDiscoveryResponder;
+  remoteBridgeDiscoveryResponder = undefined;
+  remoteBridgeDiscoverySignature = "";
+  await responder.stop();
+}
+
+async function syncRemoteBridgeRelayHost(settings: AppSettings) {
+  const relayUrl = settings.remoteBridge.relay.url.trim();
+  const workspaceDir = settings.agent.workspaceDir.trim();
+  if (!settings.remoteBridge.enabled || !settings.remoteBridge.relay.enabled || !relayUrl || !workspaceDir) {
+    await stopRemoteBridgeRelayHost();
+    return;
+  }
+
+  const signature = [
+    relayUrl,
+    settings.remoteBridge.deviceName,
+    settings.remoteBridge.host.pairingCode,
+    settings.remoteBridge.host.pairingExpiresAt,
+    settings.remoteBridge.host.permissionMode,
+    workspaceDir
+  ].join("|");
+  if (remoteBridgeRelayHost && remoteBridgeRelaySignature === signature) {
+    return;
+  }
+
+  await stopRemoteBridgeRelayHost();
+  try {
+    remoteBridgeRelayHost = await startRemoteBridgeRelayHost({
+      relayUrl,
+      deviceName: settings.remoteBridge.deviceName || "HaJiMi Host",
+      pairingCode: settings.remoteBridge.host.pairingCode,
+      pairingExpiresAt: settings.remoteBridge.host.pairingExpiresAt,
+      workspaceDir,
+      permissionMode: settings.remoteBridge.host.permissionMode,
+      onAudit: async (event) => {
+        await writeRuntimeLog(`remote relay ${event.type}: ${event.message}`);
+      }
+    });
+    remoteBridgeRelaySignature = signature;
+    await writeRuntimeLog(`remote relay connected: ${relayUrl} session ${remoteBridgeRelayHost.sessionId}`);
+  } catch (error) {
+    remoteBridgeRelaySignature = "";
+    await writeRuntimeLog(`remote relay unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function stopRemoteBridgeRelayHost() {
+  if (!remoteBridgeRelayHost) {
+    return;
+  }
+  const host = remoteBridgeRelayHost;
+  remoteBridgeRelayHost = undefined;
+  remoteBridgeRelaySignature = "";
+  await host.stop();
+  await writeRuntimeLog("remote relay stopped");
 }
 
 type ChannelBridgeSyncOptions = {

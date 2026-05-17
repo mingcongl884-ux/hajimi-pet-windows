@@ -21,12 +21,14 @@ import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type For
 import type { ChannelAdapterResult } from "../../electron/channelAdapters";
 import type { ChatMessage } from "../../electron/chatClient";
 import type { UpdateCheckResult } from "../../electron/networkClient";
+import type { RemoteBridgeDiscoveryResult } from "../../electron/remoteBridgeDiscovery";
 import type { AgentPermissionMode, AppSettings, ModelProfile, ModelProvider, PetConversation, PetConversationMode } from "../../electron/settingsStore";
 import type { RemoteNotice } from "../../electron/settingsStore";
 import type { PetAppState } from "../global";
 import { toggleActivePetId } from "../lib/activePets";
 import { openClawSetupSteps, type ChannelProvider, type ChannelSettings } from "../lib/channels";
 import { ensureProjects } from "../lib/projects";
+import { ensureRemoteBridgeSettings, type RemoteKnownHost } from "../lib/remoteBridge";
 import { buildAttachmentMessage, fileToPromptAttachment, type PromptAttachment } from "../lib/fileMessage";
 import { ensureModelProfiles, upsertModelProfile } from "../lib/modelProfiles";
 import { capabilityStatusLabel, summarizeCapabilities, type CapabilityCheckResult } from "../lib/capabilityCheck";
@@ -84,6 +86,10 @@ function providerLabel(provider: ModelProvider) {
   return provider === "claude-agent" ? "Claude Agent SDK" : "OpenAI 兼容";
 }
 
+function prepareManagerSettings(settings: AppSettings): AppSettings {
+  return ensureProjects(ensureModelProfiles(ensureRemoteBridgeSettings(settings)));
+}
+
 export default function ManagerPage({
   state,
   onImport,
@@ -109,7 +115,7 @@ export default function ManagerPage({
   onCancelMessage
 }: Props) {
   const [section, setSection] = useState<ManagerSection>("office");
-  const [settings, setSettings] = useState(ensureProjects(ensureModelProfiles(state.settings)));
+  const [settings, setSettings] = useState(() => prepareManagerSettings(state.settings));
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<string[]>(() =>
     settings.projects.filter((project) => project.id !== settings.activeProjectId).map((project) => project.id)
   );
@@ -133,20 +139,27 @@ export default function ManagerPage({
   const [checkingNetwork, setCheckingNetwork] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateCheckResult["status"]>();
   const [availableUpdateVersion, setAvailableUpdateVersion] = useState<string>();
+  const [remoteBridgeMessage, setRemoteBridgeMessage] = useState<string>();
+  const [remoteDiscoveryResults, setRemoteDiscoveryResults] = useState<RemoteBridgeDiscoveryResult[]>([]);
+  const [scanningRemoteBridges, setScanningRemoteBridges] = useState(false);
+  const [remotePairingAddress, setRemotePairingAddress] = useState("");
+  const [remotePairingCode, setRemotePairingCode] = useState("");
   const [renamingConversationId, setRenamingConversationId] = useState<string>();
   const [renamingTitle, setRenamingTitle] = useState("");
   const [renamingPetId, setRenamingPetId] = useState<string>();
   const [renamingPetName, setRenamingPetName] = useState("");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [permissionMenuOpen, setPermissionMenuOpen] = useState(false);
+  const [targetMenuOpen, setTargetMenuOpen] = useState(false);
   const officeFileInputRef = useRef<HTMLInputElement>(null);
   const officeDraftInputRef = useRef<HTMLInputElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const permissionMenuRef = useRef<HTMLDivElement>(null);
+  const targetMenuRef = useRef<HTMLDivElement>(null);
   const officeCancelRequestedRef = useRef(false);
 
-  useEffect(() => setSettings(ensureProjects(ensureModelProfiles(state.settings))), [state.settings]);
+  useEffect(() => setSettings(prepareManagerSettings(state.settings)), [state.settings]);
   useEffect(() => {
     const prepared = ensureModelProfiles(state.settings);
     if (!prepared.models.some((model) => model.id === selectedModelId)) {
@@ -190,6 +203,32 @@ export default function ManagerPage({
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [modelMenuOpen, permissionMenuOpen]);
+  useEffect(() => {
+    if (!targetMenuOpen) {
+      return;
+    }
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+      if (!targetMenuRef.current?.contains(event.target)) {
+        setTargetMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setTargetMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [targetMenuOpen]);
   useEffect(() => {
     if (!sendingOfficeMessage) {
       setOfficeElapsedMs(1000);
@@ -508,6 +547,150 @@ export default function ManagerPage({
     await update({ ...settings, activeAgentModelId: modelId });
   }
 
+  async function updateRemoteTarget(targetId: string) {
+    await update({
+      ...settings,
+      remoteBridge: {
+        ...settings.remoteBridge,
+        activeTargetId: targetId
+      }
+    });
+  }
+
+  async function startRemoteBridge() {
+    setRemoteBridgeMessage(undefined);
+    try {
+      await window.petApp.startRemoteBridge();
+      setRemoteBridgeMessage("已启动桥接。");
+    } catch (error) {
+      setRemoteBridgeMessage(error instanceof Error ? error.message : "启动桥接失败");
+    }
+  }
+
+  async function stopRemoteBridge() {
+    setRemoteBridgeMessage(undefined);
+    try {
+      await window.petApp.stopRemoteBridge();
+      setRemoteBridgeMessage("已停止桥接。");
+    } catch (error) {
+      setRemoteBridgeMessage(error instanceof Error ? error.message : "停止桥接失败");
+    }
+  }
+
+  async function generateRemotePairingCode() {
+    setRemoteBridgeMessage(undefined);
+    try {
+      await window.petApp.generateRemotePairingCode();
+      setRemoteBridgeMessage("已生成新的配对码。");
+    } catch (error) {
+      setRemoteBridgeMessage(error instanceof Error ? error.message : "生成配对码失败");
+    }
+  }
+
+  async function revokeRemoteDevice(deviceId: string) {
+    setRemoteBridgeMessage(undefined);
+    try {
+      await window.petApp.revokeRemoteDevice(deviceId);
+      if (settings.remoteBridge.activeTargetId === deviceId) {
+        await updateRemoteTarget("local");
+      }
+      setRemoteBridgeMessage("已撤销设备授权。");
+    } catch (error) {
+      setRemoteBridgeMessage(error instanceof Error ? error.message : "撤销设备失败");
+    }
+  }
+
+  async function removeKnownHost(hostId: string) {
+    const knownHosts = settings.remoteBridge.knownHosts.filter((host) => host.id !== hostId);
+    await update({
+      ...settings,
+      remoteBridge: {
+        ...settings.remoteBridge,
+        knownHosts,
+        activeTargetId: settings.remoteBridge.activeTargetId === hostId ? "local" : settings.remoteBridge.activeTargetId
+      }
+    });
+  }
+
+  async function connectRemoteHost() {
+    const address = remotePairingAddress.trim();
+    const pairingCode = remotePairingCode.trim();
+    if (!address || !pairingCode) {
+      setRemoteBridgeMessage("先填写远端地址和配对码。");
+      return;
+    }
+
+    setSaving(true);
+    setRemoteBridgeMessage(undefined);
+    try {
+      const response = await fetch(new URL("/pair", normalizeRemoteBridgeAddress(address)).toString(), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          pairingCode,
+          deviceName: settings.remoteBridge.deviceName || "HaJiMi"
+        })
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const payload = await response.json() as {
+        deviceId: string;
+        name: string;
+        token: string;
+        permissionMode: RemoteKnownHost["permissionMode"];
+        transport?: RemoteKnownHost["transport"];
+        relaySessionId?: string;
+      };
+      const nextHost: RemoteKnownHost = {
+        id: payload.deviceId,
+        name: payload.name,
+        address: normalizeRemoteBridgeAddress(address),
+        token: payload.token,
+        permissionMode: payload.permissionMode,
+        transport: payload.transport ?? "http",
+        relaySessionId: payload.relaySessionId
+      };
+      await update({
+        ...settings,
+        remoteBridge: {
+          ...settings.remoteBridge,
+          knownHosts: [
+            ...settings.remoteBridge.knownHosts.filter((host) => host.id !== nextHost.id),
+            nextHost
+          ],
+          activeTargetId: nextHost.id
+        }
+      });
+      setTargetMenuOpen(false);
+      setRemoteBridgeMessage(`已连接到 ${nextHost.name}。`);
+    } catch (error) {
+      setRemoteBridgeMessage(error instanceof Error ? error.message : "连接远端主机失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function discoverRemoteBridges() {
+    setScanningRemoteBridges(true);
+    setRemoteBridgeMessage(undefined);
+    try {
+      const results = await window.petApp.discoverRemoteBridges();
+      setRemoteDiscoveryResults(results);
+      setRemoteBridgeMessage(results.length ? `发现 ${results.length} 台可连接电脑。` : "没有发现局域网里的哈吉Mi，仍可手动输入地址。");
+    } catch (error) {
+      setRemoteBridgeMessage(error instanceof Error ? error.message : "扫描局域网失败");
+    } finally {
+      setScanningRemoteBridges(false);
+    }
+  }
+
+  function fillRemoteDiscoveredHost(host: RemoteBridgeDiscoveryResult) {
+    setRemotePairingAddress(host.address);
+    setRemoteBridgeMessage(`${host.name} 已填入地址，输入配对码后连接。`);
+  }
+
   async function switchConversation(conversationId: string) {
     setSettings({ ...settings, activeConversationId: conversationId });
     await onSwitchConversation(conversationId);
@@ -768,6 +951,17 @@ export default function ManagerPage({
   const activeAgentModelName = activeAgentModel?.name || "默认模型";
   const openAiCompatibleModels = settings.models.filter((model) => model.provider === "openai-compatible");
   const claudeAgentModels = settings.models.filter((model) => model.provider === "claude-agent");
+  const activeRemoteHost = settings.remoteBridge.knownHosts.find((host) => host.id === settings.remoteBridge.activeTargetId);
+  const activeRemoteTargetLabel = settings.remoteBridge.activeTargetId === "local" ? "本机" : activeRemoteHost?.name || "远端设备";
+  const activeRemoteTargetDescription = settings.remoteBridge.activeTargetId === "local"
+    ? "本机执行"
+    : activeRemoteHost
+      ? `${activeRemoteHost.address} · ${activeRemoteHost.permissionMode === "full-access"
+        ? "完全访问权限"
+        : activeRemoteHost.permissionMode === "auto-review"
+          ? "自动审查"
+          : "默认权限"}`
+      : "远端设备未找到";
   const selectedModel = settings.models.find((model) => model.id === selectedModelId) ?? settings.models[0];
   const activeOfficeTask = officeTask.activeTaskCard;
   const officeTaskStatus = officeTask.status;
@@ -1102,6 +1296,48 @@ export default function ManagerPage({
                         ))}
                       </div>
                     )}
+                  </div>
+                )}
+              </div>
+              <div className="composer-target-picker" ref={targetMenuRef}>
+                <button
+                  className="composer-target-select"
+                  type="button"
+                  title={activeRemoteTargetDescription}
+                  aria-expanded={targetMenuOpen}
+                  onClick={() => setTargetMenuOpen((open) => !open)}
+                >
+                  <span>{activeRemoteTargetLabel}</span>
+                  <ChevronDown size={13} />
+                </button>
+                {targetMenuOpen && (
+                  <div className="composer-target-menu">
+                    <button
+                      className={settings.remoteBridge.activeTargetId === "local" ? "active" : ""}
+                      type="button"
+                      onClick={() => {
+                        setTargetMenuOpen(false);
+                        void updateRemoteTarget("local");
+                      }}
+                    >
+                      <span>本机</span>
+                      {settings.remoteBridge.activeTargetId === "local" && <Check size={13} />}
+                    </button>
+                    {settings.remoteBridge.knownHosts.map((host) => (
+                      <button
+                        className={settings.remoteBridge.activeTargetId === host.id ? "active" : ""}
+                        key={host.id}
+                        type="button"
+                        title={host.address}
+                        onClick={() => {
+                          setTargetMenuOpen(false);
+                          void updateRemoteTarget(host.id);
+                        }}
+                      >
+                        <span>{host.name}</span>
+                        {settings.remoteBridge.activeTargetId === host.id && <Check size={13} />}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1578,6 +1814,223 @@ export default function ManagerPage({
               <p className="manager-note">权限和模型选择现在放在办公区底部输入栏里。</p>
               {saving && <p className="save-state">保存中</p>}
             </div>
+            <div className="manager-section remote-bridge-section">
+              <div className="section-title">
+                <Sparkles size={18} />
+                <span>跨电脑桥接</span>
+              </div>
+              <div className="remote-bridge-grid">
+                <div className="remote-bridge-column">
+                  <label className="manager-toggle">
+                    <span>启用本机桥接</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.remoteBridge.enabled}
+                      onChange={(event) =>
+                        void update({
+                          ...settings,
+                          remoteBridge: { ...settings.remoteBridge, enabled: event.target.checked }
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    设备名称
+                    <input
+                      value={settings.remoteBridge.deviceName}
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          remoteBridge: { ...settings.remoteBridge, deviceName: event.target.value }
+                        })
+                      }
+                      onBlur={() => void save()}
+                    />
+                  </label>
+                  <label className="manager-toggle">
+                    <span>启用云中转</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.remoteBridge.relay.enabled}
+                      onChange={(event) =>
+                        void update({
+                          ...settings,
+                          remoteBridge: {
+                            ...settings.remoteBridge,
+                            relay: {
+                              ...settings.remoteBridge.relay,
+                              enabled: event.target.checked
+                            }
+                          }
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    中转服务 URL
+                    <input
+                      value={settings.remoteBridge.relay.url}
+                      placeholder="https://relay.example.com"
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          remoteBridge: {
+                            ...settings.remoteBridge,
+                            relay: {
+                              ...settings.remoteBridge.relay,
+                              url: event.target.value
+                            }
+                          }
+                        })
+                      }
+                      onBlur={() => void save()}
+                    />
+                  </label>
+                  <label>
+                    权限级别
+                    <select
+                      value={settings.remoteBridge.host.permissionMode}
+                      onChange={(event) =>
+                        void update({
+                          ...settings,
+                          remoteBridge: {
+                            ...settings.remoteBridge,
+                            host: {
+                              ...settings.remoteBridge.host,
+                              permissionMode: event.target.value as AgentPermissionMode
+                            }
+                          }
+                        })
+                      }
+                    >
+                      <option value="default">默认权限</option>
+                      <option value="auto-review">自动审查</option>
+                      <option value="full-access">完全访问权限</option>
+                    </select>
+                  </label>
+                  <div className="remote-bridge-status-row">
+                    <span>状态</span>
+                    <strong>{settings.remoteBridge.host.status}</strong>
+                  </div>
+                  <div className="network-actions">
+                    <button className="secondary-command" disabled={saving} onClick={() => void startRemoteBridge()}>
+                      <RefreshCw size={16} />
+                      启动桥接
+                    </button>
+                    <button className="secondary-command" disabled={saving} onClick={() => void generateRemotePairingCode()}>
+                      <Sparkles size={16} />
+                      生成配对码
+                    </button>
+                    <button className="secondary-command" disabled={saving} onClick={() => void stopRemoteBridge()}>
+                      <Square size={16} />
+                      停止桥接
+                    </button>
+                  </div>
+                  {settings.remoteBridge.host.pairingCode && (
+                    <div className="remote-bridge-code">
+                      <span>配对码</span>
+                      <strong>{settings.remoteBridge.host.pairingCode}</strong>
+                      {settings.remoteBridge.host.pairingExpiresAt && (
+                        <small>有效期至 {new Date(settings.remoteBridge.host.pairingExpiresAt).toLocaleTimeString()}</small>
+                      )}
+                    </div>
+                  )}
+                  <div className="remote-host-list">
+                    <p className="manager-note">已授权设备</p>
+                    {settings.remoteBridge.trustedDevices.length === 0 ? (
+                      <p className="manager-note">还没有设备被授权。</p>
+                    ) : settings.remoteBridge.trustedDevices.map((device) => (
+                      <div className="remote-host-item" key={device.id}>
+                        <div>
+                          <strong>{device.name}</strong>
+                          <small>{device.allowedWorkspace}</small>
+                          <small>{device.permissionMode}</small>
+                        </div>
+                        <div className="remote-host-actions">
+                          <button type="button" onClick={() => void revokeRemoteDevice(device.id)}>
+                            撤销
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="remote-bridge-column">
+                  <label>
+                    远端地址
+                    <input
+                      value={remotePairingAddress}
+                      placeholder="http://127.0.0.1:18031 或 https://relay.example.com"
+                      onChange={(event) => setRemotePairingAddress(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    配对码
+                    <input
+                      value={remotePairingCode}
+                      placeholder="6 位数字"
+                      onChange={(event) => setRemotePairingCode(event.target.value)}
+                    />
+                  </label>
+                  <div className="network-actions">
+                    <button className="secondary-command" disabled={saving || scanningRemoteBridges} onClick={() => void discoverRemoteBridges()}>
+                      <RefreshCw size={16} />
+                      {scanningRemoteBridges ? "扫描中" : "扫描局域网"}
+                    </button>
+                    <button className="secondary-command" disabled={saving} onClick={() => void connectRemoteHost()}>
+                      <MessageCircle size={16} />
+                      连接远端电脑
+                    </button>
+                  </div>
+                  {remoteDiscoveryResults.length > 0 && (
+                    <div className="remote-host-list">
+                      <p className="manager-note">扫描结果</p>
+                      {remoteDiscoveryResults.map((host) => (
+                        <div className="remote-host-item" key={`${host.address}-${host.name}`}>
+                          <div>
+                            <strong>{host.name}</strong>
+                            <small>{host.address}</small>
+                            <small>{host.pairingAvailable ? "可输入配对码连接" : "等待对方生成配对码"}</small>
+                          </div>
+                          <div className="remote-host-actions">
+                            <button type="button" onClick={() => fillRemoteDiscoveredHost(host)}>
+                              填入
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="remote-host-list">
+                    {settings.remoteBridge.knownHosts.length === 0 ? (
+                      <p className="manager-note">还没有连接过其他电脑。</p>
+                    ) : settings.remoteBridge.knownHosts.map((host) => (
+                      <div className="remote-host-item" key={host.id}>
+                        <div>
+                          <strong>{host.name}</strong>
+                          <small>{host.address}</small>
+                          <small>{host.transport === "relay" ? "云中转" : "直连"}</small>
+                        </div>
+                        <div className="remote-host-actions">
+                          <button
+                            type="button"
+                            className={settings.remoteBridge.activeTargetId === host.id ? "active" : ""}
+                            onClick={() => void updateRemoteTarget(host.id)}
+                          >
+                            {settings.remoteBridge.activeTargetId === host.id ? "正在使用" : "切换"}
+                          </button>
+                          <button type="button" onClick={() => void removeKnownHost(host.id)}>
+                            移除
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <p className="manager-note">当前执行环境：{activeRemoteTargetDescription}</p>
+              {remoteBridgeMessage && <p className="save-state">{remoteBridgeMessage}</p>}
+            </div>
             <div className="manager-section network-section">
               <div className="section-title">
                 <RefreshCw size={18} />
@@ -1681,4 +2134,8 @@ function formatElapsedTime(durationMs: number): string {
     return `${seconds}s`;
   }
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+function normalizeRemoteBridgeAddress(address: string): string {
+  return new URL(address.trim()).toString().replace(/\/$/u, "");
 }

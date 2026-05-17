@@ -6,6 +6,7 @@ import { buildOpenAIChatCompletionsEndpoint } from "./chatClient.js";
 import { ChatClientError, fetchChatCompletion } from "./chatClient.js";
 import type { AgentSettings } from "./settingsStore.js";
 import { readPetAction, type PetAction } from "../src/lib/petActions.js";
+import type { RemoteToolName } from "../src/lib/remoteBridge.js";
 import {
   batchFiles,
   buildProcessListCommand,
@@ -50,6 +51,13 @@ export type ToolResult = {
   fileOutputs?: ChatFileOutput[];
 };
 
+export type AgentToolExecutor = (toolName: RemoteToolName, args: Record<string, unknown>) => Promise<ToolResult>;
+
+export type AgentExecutionContext = {
+  executionContext?: string;
+  remoteToolExecutor?: AgentToolExecutor;
+};
+
 const MAX_STEPS = 6;
 const MAX_TOOL_OUTPUT = 12000;
 
@@ -58,7 +66,8 @@ export async function runAgentTask(
   api: ChatApiSettings,
   agent: AgentSettings,
   task: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  context: AgentExecutionContext = {}
 ): Promise<ChatResponse> {
   if (!api.apiKey.trim()) {
     throw new ChatClientError("missing-api-key", "API key is required.");
@@ -68,7 +77,7 @@ export async function runAgentTask(
   }
 
   const messages: AgentMessage[] = [
-    { role: "system", content: buildAgentPrompt(api.systemPrompt, agent) },
+    { role: "system", content: buildAgentPrompt(api.systemPrompt, agent, context) },
     { role: "user", content: task }
   ];
   const petActions: PetAction[] = [];
@@ -93,7 +102,7 @@ export async function runAgentTask(
     if (!response.ok) {
       const errorMessage = await readProviderErrorMessage(response, response.statusText || "Agent provider returned an error.");
       if (step === 0 && response.status === 400) {
-        return runAgentTaskWithTextTools(fetchImpl, api, agent, task, signal, errorMessage);
+        return runAgentTaskWithTextTools(fetchImpl, api, agent, task, signal, errorMessage, context);
       }
       throw new ChatClientError(
         "provider-error",
@@ -122,7 +131,7 @@ export async function runAgentTask(
       if (petAction) {
         petActions.push(petAction);
       }
-      const result = petAction ? { content: "Pet action accepted." } : await executeToolCall(agent, toolCall);
+      const result = petAction ? { content: "Pet action accepted." } : await executeToolCall(agent, toolCall, context);
       if (result.fileOutput) {
         fileOutputs.push(result.fileOutput);
       }
@@ -151,10 +160,11 @@ async function runAgentTaskWithTextTools(
   agent: AgentSettings,
   task: string,
   signal: AbortSignal | undefined,
-  nativeToolError: string
+  nativeToolError: string,
+  context: AgentExecutionContext
 ): Promise<ChatResponse> {
   const messages: AgentMessage[] = [
-    { role: "system", content: buildTextToolPrompt(api.systemPrompt, agent, nativeToolError) },
+    { role: "system", content: buildTextToolPrompt(api.systemPrompt, agent, nativeToolError, context) },
     { role: "user", content: task }
   ];
   const petActions: PetAction[] = [];
@@ -204,7 +214,7 @@ async function runAgentTaskWithTextTools(
       if (petAction) {
         petActions.push(petAction);
       }
-      const result = petAction ? { content: "Pet action accepted." } : await executeToolCall(agent, toolCall);
+      const result = petAction ? { content: "Pet action accepted." } : await executeToolCall(agent, toolCall, context);
       if (result.fileOutput) {
         fileOutputs.push(result.fileOutput);
       }
@@ -284,22 +294,25 @@ function isInsidePath(target: string, root: string): boolean {
   return target === root || target.startsWith(`${root}${sep}`);
 }
 
-async function executeToolCall(agent: AgentSettings, toolCall: ToolCall): Promise<ToolResult> {
+async function executeToolCall(
+  agent: AgentSettings,
+  toolCall: ToolCall,
+  context: AgentExecutionContext = {}
+): Promise<ToolResult> {
   const args = parseToolArguments(toolCall.function.arguments);
+  const remoteToolName = context.remoteToolExecutor ? mapLocalToolToRemoteTool(toolCall.function.name) : undefined;
+  const remoteToolExecutor = context.remoteToolExecutor;
+  if (remoteToolName && remoteToolExecutor) {
+    return remoteToolExecutor(remoteToolName, args);
+  }
+
   switch (toolCall.function.name) {
     case "list_files":
       return { content: await listFiles(agent.workspaceDir, String(args.path ?? ".")) };
     case "read_file":
       return { content: await readTextFile(agent.workspaceDir, String(args.path ?? "")) };
     case "search_files":
-      return {
-        content: await searchFiles(
-          agent.workspaceDir,
-          String(args.query ?? ""),
-          String(args.path ?? "."),
-          typeof args.fileGlob === "string" ? args.fileGlob : undefined
-        )
-      };
+      return { content: await searchFiles(agent.workspaceDir, String(args.query ?? ""), String(args.path ?? "."), typeof args.fileGlob === "string" ? args.fileGlob : undefined) };
     case "write_file":
       return writeTextFile(agent, String(args.path ?? ""), String(args.content ?? ""));
     case "open_application":
@@ -338,6 +351,37 @@ async function executeToolCall(agent: AgentSettings, toolCall: ToolCall): Promis
   }
 }
 
+function mapLocalToolToRemoteTool(toolName: string): RemoteToolName | undefined {
+  switch (toolName) {
+    case "list_files":
+      return "listFiles";
+    case "read_file":
+      return "readFile";
+    case "search_files":
+      return "searchFiles";
+    case "write_file":
+      return "writeFile";
+    case "open_application":
+      return "openApplication";
+    case "inspect_document":
+      return "inspectDocument";
+    case "create_spreadsheet":
+      return "createSpreadsheet";
+    case "split_spreadsheet":
+      return "splitSpreadsheet";
+    case "get_system_status":
+      return "systemStatus";
+    case "list_processes":
+      return "processList";
+    case "batch_files":
+      return "batchFiles";
+    case "run_command":
+      return "runCommand";
+    default:
+      return undefined;
+  }
+}
+
 export async function listFiles(workspaceDir: string, relativePath: string): Promise<string> {
   const dir = resolveWorkspacePath(workspaceDir, relativePath);
   const entries = await readdir(dir, { withFileTypes: true });
@@ -352,7 +396,7 @@ export async function readTextFile(workspaceDir: string, relativePath: string): 
   return trimToolOutput(await readFile(filePath, "utf8"));
 }
 
-async function searchFiles(
+export async function searchFiles(
   workspaceDir: string,
   query: string,
   relativePath: string,
@@ -569,12 +613,14 @@ function readPetToolCall(toolCall: ToolCall): PetAction | undefined {
   return readPetAction(parseToolArguments(toolCall.function.arguments));
 }
 
-function buildAgentPrompt(systemPrompt: string, agent: AgentSettings): string {
+function buildAgentPrompt(systemPrompt: string, agent: AgentSettings, context: AgentExecutionContext = {}): string {
+  const executionContext = context.executionContext || "Local device";
   return [
     systemPrompt.trim() || "You are HaJiMi, a friendly desktop pet.",
     "You can help the user do real computer work by using tools, similar to a coding agent.",
     `Workspace: ${agent.workspaceDir}`,
     `Permission mode: ${agent.permissionMode ?? (agent.allowCommands ? "auto-review" : "default")}`,
+    `Current execution environment: ${executionContext}`,
     "For actionable requests, use tools. Do not say you lack tools before trying the relevant safe tool.",
     "You are not only a text assistant: you have a visible desktop pet body controlled by control_pet. Treat movement requests as requests for your own body.",
     "If the user asks you to jump, move, run, change mood, speak as a bubble, go to a screen edge/corner, play by yourself, review work, wait for a result, or calm down, use control_pet instead of saying you cannot control the GUI.",
@@ -591,9 +637,14 @@ function buildAgentPrompt(systemPrompt: string, agent: AgentSettings): string {
   ].join("\n");
 }
 
-function buildTextToolPrompt(systemPrompt: string, agent: AgentSettings, nativeToolError: string): string {
+function buildTextToolPrompt(
+  systemPrompt: string,
+  agent: AgentSettings,
+  nativeToolError: string,
+  context: AgentExecutionContext = {}
+): string {
   return [
-    buildAgentPrompt(systemPrompt, agent),
+    buildAgentPrompt(systemPrompt, agent, context),
     "",
     "Native OpenAI function tools were rejected by this provider, so use HaJiMi text tool calls instead.",
     `Native tool error: ${nativeToolError}`,

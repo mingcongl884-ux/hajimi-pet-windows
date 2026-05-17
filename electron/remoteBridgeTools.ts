@@ -1,5 +1,6 @@
 import type { AgentPermissionMode, AgentSettings } from "./settingsStore.js";
 import {
+  batchFiles,
   createSpreadsheetFile,
   inspectDocumentFile,
   splitSpreadsheetFile,
@@ -11,6 +12,7 @@ import {
   openApplication,
   readTextFile,
   runCommand,
+  searchFiles,
   writeTextFile
 } from "./agentClient.js";
 import { canRunRemoteTool, type RemoteToolName } from "../src/lib/remoteBridge.js";
@@ -39,8 +41,25 @@ export async function executeRemoteBridgeTool(request: RemoteBridgeToolRequest) 
       return { content: await listFiles(request.workspaceDir, String(request.args.path ?? ".")) };
     case "readFile":
       return { content: await readTextFile(request.workspaceDir, String(request.args.path ?? "")) };
+    case "searchFiles":
+      return {
+        content: await searchFiles(
+          request.workspaceDir,
+          String(request.args.query ?? ""),
+          String(request.args.path ?? "."),
+          typeof request.args.fileGlob === "string" ? request.args.fileGlob : undefined
+        )
+      };
     case "writeFile":
       return writeTextFile(agent, String(request.args.path ?? ""), String(request.args.content ?? ""));
+    case "batchFiles":
+      return batchFiles(
+        agent,
+        request.args.operation === "move" ? "move" : "copy",
+        String(request.args.sourceDir ?? "."),
+        String(request.args.outputDir ?? "batch-output"),
+        typeof request.args.extension === "string" ? request.args.extension : undefined
+      );
     case "inspectDocument":
       return inspectDocumentFile(request.workspaceDir, String(request.args.path ?? ""));
     case "createSpreadsheet":
@@ -65,6 +84,8 @@ export async function executeRemoteBridgeTool(request: RemoteBridgeToolRequest) 
     case "runCommand":
       return { content: await runCommand(agent, String(request.args.command ?? "")) };
   }
+
+  throw new Error(`Unknown remote tool: ${request.tool}`);
 }
 
 function readStringArray(value: unknown): string[] | undefined {

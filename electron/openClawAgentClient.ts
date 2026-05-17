@@ -7,6 +7,8 @@ import { dirname, join } from "node:path";
 import type { ChatApiSettings, ChatResponse } from "./chatClient.js";
 import { ChatClientError } from "./chatClient.js";
 import type { AgentSettings } from "./settingsStore.js";
+import { buildRemoteBridgeOpenClawMcpServerConfig } from "./remoteBridgeClient.js";
+import type { RemoteKnownHost } from "../src/lib/remoteBridge.js";
 
 const require = createRequire(import.meta.url);
 const OPENCLAW_API_KEY_ENV = "HAJIMI_OPENCLAW_API_KEY";
@@ -26,6 +28,13 @@ type SpawnImpl = (command: string, args: string[], options: {
 }) => SpawnedProcess;
 
 type OpenClawConfig = {
+  mcp?: {
+    servers: Record<string, {
+      url: string;
+      transport: "streamable-http";
+      headers: Record<string, string>;
+    }>;
+  };
   agents: {
     defaults: {
       workspace: string;
@@ -87,6 +96,7 @@ type RunOpenClawAgentOptions = {
   openClawCli?: string;
   spawnImpl?: SpawnImpl;
   signal?: AbortSignal;
+  remoteBridgeHost?: RemoteKnownHost;
 };
 
 export async function runOpenClawAgentTask(
@@ -105,7 +115,7 @@ export async function runOpenClawAgentTask(
   const stateDir = options.stateDir ?? join(defaultUserDataDir(), "openclaw-office");
   await mkdir(stateDir, { recursive: true });
   const configPath = join(stateDir, "openclaw.json");
-  await writeFile(configPath, `${JSON.stringify(buildOpenClawConfig(api, agent), null, 2)}\n`, "utf8");
+  await writeFile(configPath, `${JSON.stringify(buildOpenClawConfig(api, agent, options.remoteBridgeHost), null, 2)}\n`, "utf8");
 
   const cliPath = options.openClawCli ?? resolveBundledOpenClawCli();
   if (!cliPath) {
@@ -151,13 +161,16 @@ export async function runOpenClawAgentTask(
   return parseOpenClawAgentOutput(result.output);
 }
 
-export function buildOpenClawConfig(api: ChatApiSettings, agent: AgentSettings): OpenClawConfig {
+export function buildOpenClawConfig(api: ChatApiSettings, agent: AgentSettings, remoteBridgeHost?: RemoteKnownHost): OpenClawConfig {
   const providerId = "hajimi-default";
   const modelId = api.model.trim();
   const modelRef = `${providerId}/${modelId}`;
   const systemPrompt = [
     api.systemPrompt.trim() || "You are HaJiMi, a friendly desktop pet office agent.",
     "You are running inside HaJiMi ordinary office mode through OpenClaw.",
+    remoteBridgeHost
+      ? `Current execution environment: Remote device "${remoteBridgeHost.name}". Use the hajimi-remote-bridge MCP tools when acting on that computer.`
+      : "Current execution environment: Local device.",
     "When useful, handle real workspace tasks with available file, runtime, and session tools.",
     "Reply in the user's language unless the task asks otherwise."
   ].join("\n");
@@ -165,6 +178,13 @@ export function buildOpenClawConfig(api: ChatApiSettings, agent: AgentSettings):
   const defaultMode = agent.permissionMode === "default" && !agent.allowCommands;
 
   return {
+    ...(remoteBridgeHost ? {
+      mcp: {
+        servers: {
+          "hajimi-remote-bridge": buildRemoteBridgeOpenClawMcpServerConfig(remoteBridgeHost)
+        }
+      }
+    } : {}),
     agents: {
       defaults: {
         workspace: agent.workspaceDir,

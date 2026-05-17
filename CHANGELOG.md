@@ -2,6 +2,13 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.52 - 2026-05-17
+
+- Added cross-computer bridge cloud relay support so one HaJiMi can authorize another HaJiMi to run remote desktop-agent tools across networks.
+- Added relay-aware MCP routing for Claude Agent SDK and OpenClaw-backed office tasks, while keeping manual direct bridge and LAN discovery available.
+- Added the remote relay deployment guide and tests for pairing, MCP tool access, discovery, and remote-agent routing.
+- Improved remote task routing, cancellation source tracking, and bridge settings so local and remote work targets are easier to distinguish.
+
 ## 0.1.45 - 2026-05-11
 
 - Fixed Claude Agent SDK / CC Switch startup by automatically locating a system `claude.exe`, WinGet Claude Code installs, explicit executable overrides, or the bundled SDK binary.

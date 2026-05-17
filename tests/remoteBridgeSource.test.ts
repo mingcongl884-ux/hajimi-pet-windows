@@ -14,15 +14,20 @@ describe("remote bridge source wiring", () => {
     expect(mainSource).toContain('"pet:stop-remote-bridge"');
     expect(mainSource).toContain('"pet:generate-remote-pairing-code"');
     expect(mainSource).toContain('"pet:revoke-remote-device"');
+    expect(mainSource).toContain('"pet:discover-remote-bridges"');
+    expect(mainSource).toContain("startRemoteBridgeRelayHost");
     expect(mainSource).not.toContain("runClaudeOfficeTask(model, settings.remoteBridge");
     expect(mainSource).not.toContain("runOrdinaryOfficeTask(task.fetchImpl, model, settings.remoteBridge");
   });
 
   it("exposes remote bridge controls to the renderer", () => {
     expect(preloadSource).toContain("startRemoteBridge");
+    expect(preloadSource).toContain("discoverRemoteBridges");
     expect(preloadSource).toContain("generateRemotePairingCode");
     expect(preloadCjsSource).toContain("startRemoteBridge");
+    expect(preloadCjsSource).toContain("discoverRemoteBridges");
     expect(globalSource).toContain("startRemoteBridge(): Promise<PetAppState>");
+    expect(globalSource).toContain("discoverRemoteBridges(): Promise<RemoteBridgeDiscoveryResult[]>");
     expect(globalSource).toContain("revokeRemoteDevice(deviceId: string): Promise<PetAppState>");
   });
 });

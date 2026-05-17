@@ -15,16 +15,23 @@ const CLAUDE_EXECUTABLE_ENV_KEYS = [
   "ANTHROPIC_CLAUDE_CODE_PATH"
 ];
 
+export type ClaudeAgentTaskOptions = {
+  abortController?: AbortController;
+  mcpServers?: Options["mcpServers"];
+  executionContext?: string;
+};
+
 export async function runClaudeAgentTask(
   model: ModelProfile,
   agent: AgentSettings,
   task: string,
-  abortController?: AbortController
+  options: AbortController | ClaudeAgentTaskOptions = {}
 ): Promise<ChatResponse> {
   if (!agent.workspaceDir.trim()) {
     throw new ChatClientError("malformed-response", "Choose a workspace before using advanced work mode.");
   }
 
+  const runOptions = options instanceof AbortController ? { abortController: options } : options;
   return runClaudeQuery(model, task, {
     cwd: agent.workspaceDir,
     maxTurns: 24,
@@ -32,9 +39,10 @@ export async function runClaudeAgentTask(
     systemPrompt: {
       type: "preset",
       preset: "claude_code",
-      append: buildAgentAppendPrompt(model.systemPrompt, agent)
+      append: buildAgentAppendPrompt(model.systemPrompt, agent, runOptions.executionContext)
     },
-    abortController
+    ...(runOptions.mcpServers ? { mcpServers: runOptions.mcpServers } : {}),
+    abortController: runOptions.abortController
   });
 }
 
@@ -299,12 +307,13 @@ function readToolOutputSize(input: Record<string, unknown>, filePath: string, wo
   }
 }
 
-function buildAgentAppendPrompt(systemPrompt: string, agent: AgentSettings): string {
+function buildAgentAppendPrompt(systemPrompt: string, agent: AgentSettings, executionContext = "Local device"): string {
   return [
     systemPrompt.trim() || "You are HaJiMi, a friendly desktop pet office agent.",
     "You are running inside the HaJiMi desktop pet app as the advanced office mode.",
     `Workspace: ${agent.workspaceDir}`,
     `Permission mode: ${agent.permissionMode}`,
+    `Current execution environment: ${executionContext}`,
     "Keep paths relative to the workspace when possible.",
     "When the user asks to launch an app, check the current permission mode and use Bash with a safe Start-Process command instead of only explaining manual steps.",
     "When the user asks for output files, create the files with Write/Edit or Bash and then stop with a concise summary. If they ask for Desktop output, use the user's Desktop folder.",

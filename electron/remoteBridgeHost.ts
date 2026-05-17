@@ -3,17 +3,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import type { AgentPermissionMode } from "./settingsStore.js";
 import { executeRemoteBridgeTool } from "./remoteBridgeTools.js";
+import { startRemoteBridgeMcpRuntime, type RemoteBridgeAuditEvent, type RemoteBridgeMcpRuntime } from "./remoteBridgeMcp.js";
 import type { RemoteToolName, RemoteTrustedDevice } from "../src/lib/remoteBridge.js";
-
-export type RemoteBridgeAuditEvent = {
-  type: "pair" | "tool" | "denied" | "error";
-  deviceId?: string;
-  deviceName?: string;
-  requestId?: string;
-  tool?: string;
-  message: string;
-  at: string;
-};
 
 export type StartRemoteBridgeHostOptions = {
   port: number;
@@ -45,8 +36,14 @@ type ToolRequest = {
 };
 
 export async function startRemoteBridgeHost(options: StartRemoteBridgeHostOptions): Promise<RemoteBridgeHostController> {
+  const mcpRuntime = await startRemoteBridgeMcpRuntime({
+    workspaceDir: options.workspaceDir,
+    permissionMode: options.permissionMode,
+    trustedDevices: options.trustedDevices,
+    onAudit: options.onAudit
+  });
   const server = createServer((request, response) => {
-    void handleRequest(options, request, response);
+    void handleRequest(options, mcpRuntime, request, response);
   });
   const bindHost = options.bindHost ?? "0.0.0.0";
   await new Promise<void>((resolve, reject) => {
@@ -61,12 +58,16 @@ export async function startRemoteBridgeHost(options: StartRemoteBridgeHostOption
   return {
     url: `http://${visibleHost}:${address.port}`,
     port: address.port,
-    stop: () => stopServer(server)
+    stop: async () => {
+      await mcpRuntime.close();
+      await stopServer(server);
+    }
   };
 }
 
 async function handleRequest(
   options: StartRemoteBridgeHostOptions,
+  mcpRuntime: RemoteBridgeMcpRuntime,
   request: IncomingMessage,
   response: ServerResponse
 ) {
@@ -87,6 +88,11 @@ async function handleRequest(
 
     if (request.method === "POST" && request.url === "/tool") {
       await handleTool(options, request, response);
+      return;
+    }
+
+    if (request.url === "/mcp") {
+      await mcpRuntime.handleRequest(request, response);
       return;
     }
 

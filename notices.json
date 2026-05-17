@@ -1,6 +1,14 @@
 {
   "notices": [
     {
+      "id": "2026-05-17-remote-cloud-relay",
+      "title": "HaJiMi 0.1.52 云中转桥接",
+      "message": "新增跨电脑云中转桥接：另一台哈吉Mi 可以在授权后通过当前电脑执行文件、命令和办公工具。也保留局域网发现和手动直连。",
+      "version": "0.1.52",
+      "publishedAt": "2026-05-17T00:20:00.000Z",
+      "url": "https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/tag/v0.1.52"
+    },
+    {
       "id": "2026-05-09-github-update-feed",
       "title": "HaJiMi GitHub 更新源",
       "message": "哈基Mi 已支持通过 GitHub Releases 检查新版本，并通过 GitHub JSON 公告源接收通知。",

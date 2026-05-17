@@ -3,6 +3,7 @@ import type { ChannelAdapterResult } from "../electron/channelAdapters";
 import type { UpdateCheckResult } from "../electron/networkClient";
 import type { AppSettings, ModelProfile } from "../electron/settingsStore";
 import type { RemoteNotice } from "../electron/settingsStore";
+import type { RemoteBridgeDiscoveryResult } from "../electron/remoteBridgeDiscovery";
 import type { CapabilityCheckResult } from "./lib/capabilityCheck";
 import type { ProjectMemory, ProjectMemoryUpdate } from "./lib/projectMemory";
 import type { ChannelProvider } from "./lib/channels";
@@ -60,6 +61,7 @@ declare global {
       stopRemoteBridge(): Promise<PetAppState>;
       generateRemotePairingCode(): Promise<PetAppState>;
       revokeRemoteDevice(deviceId: string): Promise<PetAppState>;
+      discoverRemoteBridges(): Promise<RemoteBridgeDiscoveryResult[]>;
       startChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
       stopChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;
       testChannel(provider: ChannelProvider): Promise<ChannelAdapterResult>;

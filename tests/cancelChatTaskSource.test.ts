@@ -19,7 +19,9 @@ describe("cancellable chat tasks source", () => {
     expect(mainSource).toContain("activeChatTaskControllers");
     expect(mainSource).toContain("ipcMain.handle(\"pet:cancel-chat-task\"");
     expect(mainSource).toContain("AbortController");
-    expect(mainSource).toContain("runClaudeOfficeTask(model, settings.agent, taskPrompt, task.controller)");
+    expect(mainSource).toContain("runRemoteBridgeAgentTask(task.fetchImpl, model, settings.agent, taskPrompt, task.controller, remoteHost)");
+    expect(mainSource).toContain("runClaudeOfficeTask(model, agent, taskPrompt, controller, remoteHost)");
+    expect(mainSource).toContain("abortController: controller");
     expect(mainSource).toContain('const { runClaudeAgentTask } = await import("./claudeAgentClient.js")');
     expect(claudeAgentSource).toContain("throw new ChatClientError(\"cancelled\"");
   });
