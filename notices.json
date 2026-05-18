@@ -1,25 +1,41 @@
 {
   "notices": [
     {
+      "id": "2026-05-18-remote-relay-pairing",
+      "title": "HaJiMi 0.1.55 remote relay pairing fix",
+      "message": "This update saves the current cloud relay bridge settings before starting the bridge or generating a pairing code, so cross-network pairing codes are registered against the relay URL you just entered.",
+      "version": "0.1.55",
+      "publishedAt": "2026-05-18T08:25:00.000Z",
+      "url": "https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/tag/v0.1.55"
+    },
+    {
+      "id": "2026-05-18-remote-bridge-main-process-pairing",
+      "title": "HaJiMi 0.1.54 remote bridge connection fix",
+      "message": "Remote bridge pairing now runs through the Electron main process instead of the renderer, avoiding CORS and preload mismatch failures when connecting to LAN or relay hosts.",
+      "version": "0.1.54",
+      "publishedAt": "2026-05-18T07:05:00.000Z",
+      "url": "https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/tag/v0.1.54"
+    },
+    {
       "id": "2026-05-17-settings-skills",
-      "title": "HaJiMi 0.1.53 设置分页与 Skills",
-      "message": "本版把办公区作为默认主界面，侧边栏只保留宠物和设置；模型、Skills、通道和系统选项统一收进设置分页。同时补上 Skills 管理和 / 调用入口，让办公任务更像 Codex 一样自然流转。",
+      "title": "HaJiMi 0.1.53 settings and Skills",
+      "message": "The office workspace is now the default surface, while models, Skills, channels, and system options live under Settings. Skills management and slash invocation are included.",
       "version": "0.1.53",
       "publishedAt": "2026-05-17T13:15:00.000Z",
       "url": "https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/tag/v0.1.53"
     },
     {
       "id": "2026-05-17-remote-cloud-relay",
-      "title": "HaJiMi 0.1.52 云中转桥接",
-      "message": "新增跨电脑云中转桥接：另一台哈吉Mi 可以在授权后通过当前电脑执行文件、命令和办公工具。也保留局域网发现和手动直连。",
+      "title": "HaJiMi 0.1.52 cloud relay bridge",
+      "message": "Adds cross-computer cloud relay bridging so one HaJiMi can authorize another HaJiMi to run remote desktop-agent tools across networks. LAN discovery and manual direct addresses remain available.",
       "version": "0.1.52",
       "publishedAt": "2026-05-17T00:20:00.000Z",
       "url": "https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/tag/v0.1.52"
     },
     {
       "id": "2026-05-09-github-update-feed",
-      "title": "HaJiMi GitHub 更新源",
-      "message": "哈基Mi 已支持通过 GitHub Releases 检查新版本，并通过 GitHub JSON 公告源接收通知。",
+      "title": "HaJiMi GitHub update feed",
+      "message": "HaJiMi supports update checks through GitHub Releases and receives announcements through the GitHub JSON notice feed.",
       "version": "0.1.25",
       "publishedAt": "2026-05-09T04:30:00.000Z",
       "url": "https://github.com/mingcongl884-ux/hajimi-pet-windows/releases"

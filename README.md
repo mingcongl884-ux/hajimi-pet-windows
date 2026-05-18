@@ -116,6 +116,7 @@ Installers are generated in `dist/`.
 | 0.1.42 | `HaJiMi-Setup-0.1.42.exe` | Fixes installed WeChat QR startup by launching a generated PowerShell script file, and runs the WeChat message bridge in bundled Node 22 to avoid Electron runtime incompatibilities. |
 | 0.1.53 | `HaJiMi-Setup-0.1.53.exe` | Adds Codex-style settings pages, keeps office as the default app surface, moves models/Skills/channels/system options under Settings, and supports Skills management with slash invocation. |
 | 0.1.54 | `HaJiMi-Setup-0.1.54.exe` | Fixes remote bridge pairing by moving the `/pair` request into the Electron main process, avoiding renderer CORS failures and making LAN or relay connection setup reliable. |
+| 0.1.55 | `HaJiMi-Setup-0.1.55.exe` | Saves the current cloud relay bridge settings before starting the bridge or generating a pairing code, preventing stale relay URLs from invalidating codes. |
 
 Use the latest installer unless you need to compare a previous build.
 

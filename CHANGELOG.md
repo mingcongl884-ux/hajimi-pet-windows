@@ -2,6 +2,10 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.55 - 2026-05-18
+
+- Fixed cloud relay setup using stale bridge settings by saving the current bridge draft before starting the bridge or generating a pairing code.
+
 ## 0.1.54 - 2026-05-18
 
 - Fixed remote bridge pairing by moving the `/pair` request into the Electron main process, which avoids renderer CORS issues and makes LAN or relay connection setup reliable.

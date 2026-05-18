@@ -669,10 +669,19 @@ export default function ManagerPage({
     });
   }
 
+  async function persistRemoteBridgeDraftSettings() {
+    const nextSettings = prepareManagerSettings(settings);
+    setSettings(nextSettings);
+    await onSave(nextSettings);
+    return nextSettings;
+  }
+
   async function startRemoteBridge() {
     setRemoteBridgeMessage(undefined);
     try {
-      await window.petApp.startRemoteBridge();
+      await persistRemoteBridgeDraftSettings();
+      const state = await window.petApp.startRemoteBridge();
+      setSettings(prepareManagerSettings(state.settings));
       setRemoteBridgeMessage("已启动桥接。");
     } catch (error) {
       setRemoteBridgeMessage(error instanceof Error ? error.message : "启动桥接失败");
@@ -682,7 +691,8 @@ export default function ManagerPage({
   async function stopRemoteBridge() {
     setRemoteBridgeMessage(undefined);
     try {
-      await window.petApp.stopRemoteBridge();
+      const state = await window.petApp.stopRemoteBridge();
+      setSettings(prepareManagerSettings(state.settings));
       setRemoteBridgeMessage("已停止桥接。");
     } catch (error) {
       setRemoteBridgeMessage(error instanceof Error ? error.message : "停止桥接失败");
@@ -692,7 +702,9 @@ export default function ManagerPage({
   async function generateRemotePairingCode() {
     setRemoteBridgeMessage(undefined);
     try {
-      await window.petApp.generateRemotePairingCode();
+      await persistRemoteBridgeDraftSettings();
+      const state = await window.petApp.generateRemotePairingCode();
+      setSettings(prepareManagerSettings(state.settings));
       setRemoteBridgeMessage("已生成新的配对码。");
     } catch (error) {
       setRemoteBridgeMessage(error instanceof Error ? error.message : "生成配对码失败");
