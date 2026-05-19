@@ -3,6 +3,7 @@ import {
   buildHeartbeatPrompt,
   chooseLocalGreeting,
   getDueGreetingSlot,
+  isUsableHeartbeatGreeting,
   shouldCollapseToBubble
 } from "../src/lib/heartbeat";
 
@@ -35,6 +36,13 @@ describe("heartbeat greeting content", () => {
   it("builds a short model prompt for proactive greetings", () => {
     expect(buildHeartbeatPrompt("morning")).toContain("HEARTBEAT_OK");
     expect(buildHeartbeatPrompt("afterWork")).toContain("18:20");
+  });
+
+  it("rejects generic acknowledgement replies from model greetings", () => {
+    expect(isUsableHeartbeatGreeting("好的。")).toBe(false);
+    expect(isUsableHeartbeatGreeting("收到")).toBe(false);
+    expect(isUsableHeartbeatGreeting("OK")).toBe(false);
+    expect(isUsableHeartbeatGreeting("早上好，先把最重要的一件事放到前面。")).toBe(true);
   });
 });
 

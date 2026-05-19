@@ -2,6 +2,11 @@
 
 All notable installer-facing changes for HaJiMi are tracked here.
 
+## 0.1.56 - 2026-05-19
+
+- Fixed proactive pet greetings so generic model acknowledgements like `好的。`, `收到`, or `OK` are ignored and replaced with a real local greeting.
+- Hardened the remote bridge source test used by GitHub Actions so Windows line endings no longer block release publishing.
+
 ## 0.1.55 - 2026-05-18
 
 - Fixed cloud relay setup using stale bridge settings by saving the current bridge draft before starting the bridge or generating a pairing code.

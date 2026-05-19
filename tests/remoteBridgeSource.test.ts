@@ -42,8 +42,8 @@ describe("remote bridge source wiring", () => {
     expect(managerSource).toContain("describeRemoteBridgeTarget");
     expect(managerSource).toContain("window.petApp.pairRemoteBridge");
     expect(managerSource).toContain("persistRemoteBridgeDraftSettings");
-    expect(managerSource).toContain("await persistRemoteBridgeDraftSettings();\n      const state = await window.petApp.startRemoteBridge()");
-    expect(managerSource).toContain("await persistRemoteBridgeDraftSettings();\n      const state = await window.petApp.generateRemotePairingCode()");
+    expect(managerSource).toMatch(/await persistRemoteBridgeDraftSettings\(\);\r?\n\s+const state = await window\.petApp\.startRemoteBridge\(\)/);
+    expect(managerSource).toMatch(/await persistRemoteBridgeDraftSettings\(\);\r?\n\s+const state = await window\.petApp\.generateRemotePairingCode\(\)/);
     expect(managerSource).not.toContain("fetch(new URL(\"/pair\"");
   });
 });

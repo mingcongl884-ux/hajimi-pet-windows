@@ -14,6 +14,7 @@ import {
   buildHeartbeatPrompt,
   chooseLocalGreeting,
   getDueGreetingSlot,
+  isUsableHeartbeatGreeting,
   type GreetingSlotId
 } from "./lib/heartbeat";
 import type { ChatMessage } from "../electron/chatClient";
@@ -252,7 +253,7 @@ export default function App() {
       try {
         const response = await window.petApp.heartbeatGreeting(buildHeartbeatPrompt(slot.id));
         const content = response.content.trim();
-        if (content && content !== "HEARTBEAT_OK") {
+        if (isUsableHeartbeatGreeting(content)) {
           text = content;
         }
       } catch {

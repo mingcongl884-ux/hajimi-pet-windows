@@ -1,6 +1,14 @@
 {
   "notices": [
     {
+      "id": "2026-05-19-heartbeat-greeting-fallback",
+      "title": "HaJiMi 0.1.56 greeting fix",
+      "message": "Pet greeting bubbles now ignore generic model acknowledgements such as 好的, 收到, or OK, then fall back to a real local greeting so timed greetings feel natural again.",
+      "version": "0.1.56",
+      "publishedAt": "2026-05-19T01:50:00.000Z",
+      "url": "https://github.com/mingcongl884-ux/hajimi-pet-windows/releases/tag/v0.1.56"
+    },
+    {
       "id": "2026-05-18-remote-relay-pairing",
       "title": "HaJiMi 0.1.55 remote relay pairing fix",
       "message": "This update saves the current cloud relay bridge settings before starting the bridge or generating a pairing code, so cross-network pairing codes are registered against the relay URL you just entered.",

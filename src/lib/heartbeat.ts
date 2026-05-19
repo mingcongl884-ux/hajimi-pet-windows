@@ -37,6 +37,36 @@ export function chooseLocalGreeting(slotId: GreetingSlotId, seed = Date.now()): 
   return choosePetGreeting(slotId, seed);
 }
 
+export function isUsableHeartbeatGreeting(text: string): boolean {
+  const compact = text.trim().replace(/\s+/g, "");
+  if (!compact) {
+    return false;
+  }
+
+  const withoutPunctuation = compact
+    .replace(/[。.!！?？~～,，、;；:："“”'‘’()（）[\]【】\-—…]/g, "")
+    .toLowerCase();
+  const genericReplies = new Set([
+    "heartbeat_ok",
+    "ok",
+    "okay",
+    "done",
+    "好",
+    "好的",
+    "好呀",
+    "好哒",
+    "可以",
+    "行",
+    "收到",
+    "明白",
+    "嗯",
+    "嗯嗯",
+    "没问题"
+  ]);
+
+  return !genericReplies.has(withoutPunctuation);
+}
+
 export function buildHeartbeatPrompt(slotId: GreetingSlotId): string {
   const timeHint = slotId === "morning" ? "09:40" : slotId === "lunch" ? "12:00" : "18:20";
   return [
@@ -45,6 +75,7 @@ export function buildHeartbeatPrompt(slotId: GreetingSlotId): string {
     "Write one short, warm Chinese bubble message for the user.",
     "During work hours you may remind them to relax their eyes, drink water, stretch, or gently wrap up.",
     "If you truly have nothing useful to say, reply exactly HEARTBEAT_OK.",
+    "Do not reply with generic acknowledgements such as OK, 好的, 收到, or 明白.",
     "Do not mention that you are a model or heartbeat."
   ].join("\n");
 }
